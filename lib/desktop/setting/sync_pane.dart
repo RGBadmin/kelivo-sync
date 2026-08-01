@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/providers/sync_provider.dart';
 import '../../features/sync/pages/sync_settings_page.dart'
-    show runSyncEnableFlow;
+    show confirmManualSyncAction, runSyncEnableFlow;
 import '../../icons/lucide_adapter.dart' as lucide;
 import '../../l10n/app_localizations.dart';
 import '../../shared/widgets/ios_switch.dart';
@@ -225,14 +225,30 @@ class DesktopSyncPane extends StatelessWidget {
                     ],
                     _rowDivider(context),
                     _ItemRow(
-                      label: l10n.syncSyncNow,
+                      label: l10n.syncUploadNow,
                       trailing: _DeskButton(
-                        label: l10n.syncSyncNow,
+                        label: l10n.syncUploadNow,
                         filled: true,
                         busy: syncing,
                         onTap: (!sync.isEnabled || syncing)
                             ? null
-                            : () => context.read<SyncService>().syncNow(),
+                            : () =>
+                                  confirmManualSyncAction(context, upload: true),
+                      ),
+                    ),
+                    _rowDivider(context),
+                    _ItemRow(
+                      label: l10n.syncDownloadNow,
+                      trailing: _DeskButton(
+                        label: l10n.syncDownloadNow,
+                        filled: false,
+                        busy: syncing,
+                        onTap: (!sync.isEnabled || syncing)
+                            ? null
+                            : () => confirmManualSyncAction(
+                                context,
+                                upload: false,
+                              ),
                       ),
                     ),
                   ],

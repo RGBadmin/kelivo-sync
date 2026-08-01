@@ -216,6 +216,60 @@ class SyncService extends ChangeNotifier
     await _runSync(full: true, auto: false);
   }
 
+  /// Manual upload: make the cloud identical to this device.
+  Future<void> uploadNow() =>
+      _runManual((engine, store) => engine.forceUpload(store));
+
+  /// Manual download: make this device identical to the cloud. Returns the
+  /// report so the UI can prompt for a restart when settings changed.
+  Future<SyncPullReport?> downloadNow() =>
+      _runManual((engine, store) => engine.forceDownload(store));
+
+  Future<SyncPullReport?> _runManual(
+    Future<SyncPullReport> Function(SyncEngine engine, SyncRemoteStore store)
+    operation,
+  ) async {
+    if (!_enabled || _syncing) return null;
+    final store = _buildStore();
+    if (store == null) {
+      _lastError = 'sync_backend_not_configured';
+      _setPhase(SyncPhase.configError);
+      return null;
+    }
+    _retryTimer?.cancel();
+    _syncing = true;
+    _lastRoundAt = DateTime.now();
+    _setPhase(SyncPhase.syncing);
+    try {
+      final engine = await _ensureEngine();
+      final report = await operation(engine, store);
+      await _applyUiRefresh(report);
+      _consecutiveFailures = 0;
+      _lastError = null;
+      _lastSyncAt = DateTime.now();
+      _setPhase(SyncPhase.idle);
+      return report;
+    } on SyncSchemaTooNewException {
+      _lastError = 'sync_schema_too_new';
+      _setPhase(SyncPhase.needsAppUpdate);
+      return null;
+    } on RemoteAuthException catch (error) {
+      _lastError = error.message;
+      _setPhase(SyncPhase.configError);
+      return null;
+    } on RemoteRateLimitedException catch (error) {
+      _lastError = '服务器限流 (${error.message})，已暂停并将稍后自动重试';
+      _setPhase(SyncPhase.retrying);
+      return null;
+    } catch (error) {
+      _lastError = '$error';
+      _setPhase(SyncPhase.retrying);
+      return null;
+    } finally {
+      _syncing = false;
+    }
+  }
+
   /// Enable flow for the settings UI: switches sync on, creates the remote
   /// directories, then runs the FIRST full sync synchronously so the caller
   /// can show progress and — when cloud data was downloaded — prompt for a

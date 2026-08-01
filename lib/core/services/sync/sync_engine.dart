@@ -207,6 +207,64 @@ final class SyncEngine {
     throw const SyncConflictRetriesExhaustedException();
   }
 
+  /// Manual "upload to cloud": makes the remote identical to local state,
+  /// regardless of which side is newer.
+  Future<SyncPullReport> forceUpload(SyncRemoteStore store) async {
+    await _markEverythingDirty();
+    for (var attempt = 0; attempt < _maxConflictRetries; attempt++) {
+      final dirty = await _stateStore.snapshotDirty();
+      final tombstones = await _stateStore.allTombstones();
+      SyncManifest remote;
+      String? remoteEtag;
+      switch (await store.getObject(SyncManifest.path)) {
+        case RemoteObjectMissing():
+          await store.ensureReady();
+          remote = SyncManifest.empty(AppDatabase.currentSchemaVersion);
+          remoteEtag = null;
+        case RemoteObjectData(:final bytes, :final etag):
+          remote = SyncManifest.decode(bytes);
+          remoteEtag = etag;
+        case RemoteObjectUnchanged():
+          throw StateError('sync_manifest_unchanged_without_etag');
+      }
+      if (remote.schemaVersion > AppDatabase.currentSchemaVersion) {
+        throw SyncSchemaTooNewException(remote.schemaVersion);
+      }
+      SyncClock.observe(remote.writtenAt);
+      final report = await _mirrorPush(
+        store,
+        remote,
+        remoteEtag,
+        dirty,
+        tombstones,
+      );
+      if (report != null) return report;
+    }
+    throw const SyncConflictRetriesExhaustedException();
+  }
+
+  /// Manual "download from cloud": makes local state identical to the
+  /// remote, discarding pending local changes. No-op when the cloud holds
+  /// no manifest yet.
+  Future<SyncPullReport> forceDownload(SyncRemoteStore store) async {
+    final result = await store.getObject(SyncManifest.path);
+    if (result is! RemoteObjectData) return const SyncPullReport();
+    final manifest = SyncManifest.decode(result.bytes);
+    if (manifest.schemaVersion > AppDatabase.currentSchemaVersion) {
+      throw SyncSchemaTooNewException(manifest.schemaVersion);
+    }
+    SyncClock.observe(manifest.writtenAt);
+    return _applyMirror(
+      store,
+      manifest,
+      result.etag,
+      lastApplied: null,
+      discardedDirty: await _stateStore.snapshotDirty(),
+      discardedTombstones: await _stateStore.allTombstones(),
+      forceFull: true,
+    );
+  }
+
   // ===== Cloud → local =====
 
   Future<SyncPullReport> _applyMirror(
@@ -216,9 +274,12 @@ final class SyncEngine {
     required SyncManifest? lastApplied,
     required List<SyncDirtyEntry> discardedDirty,
     required List<SyncTombstone> discardedTombstones,
+    bool forceFull = false,
   }) async {
     final discardPending =
-        discardedDirty.isNotEmpty || discardedTombstones.isNotEmpty;
+        forceFull ||
+        discardedDirty.isNotEmpty ||
+        discardedTombstones.isNotEmpty;
     final active = await _activeConversationIds();
     final changedConversations = <String>{};
     var businessChanged = false;

@@ -2556,5 +2556,9 @@
   "syncInitialSyncing": "Running the first sync, please keep the app open…",
   "syncRestartRequired": "First sync finished",
   "syncRestartContent": "Cloud data has been downloaded and merged. Restart the app to load everything.",
-  "syncRestartOk": "Restart now"
+  "syncRestartOk": "Restart now",
+  "syncUploadNow": "Upload to cloud",
+  "syncDownloadNow": "Download from cloud",
+  "syncUploadConfirmBody": "This device's data will overwrite the cloud version (extra cloud content is deleted). Upload now?",
+  "syncDownloadConfirmBody": "Cloud data will overwrite this device (extra local content is deleted). Download now?"
 }

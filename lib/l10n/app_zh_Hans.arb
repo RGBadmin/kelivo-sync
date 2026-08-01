@@ -2102,5 +2102,9 @@
   "syncInitialSyncing": "正在进行首次同步，请保持应用打开…",
   "syncRestartRequired": "首次同步完成",
   "syncRestartContent": "云端数据已下载并合并，需要重启应用以加载全部数据。",
-  "syncRestartOk": "立即重启"
+  "syncRestartOk": "立即重启",
+  "syncUploadNow": "上传到云",
+  "syncDownloadNow": "从云下载",
+  "syncUploadConfirmBody": "将用本机数据覆盖云端版本（云端多余的内容会被删除）。确定上传？",
+  "syncDownloadConfirmBody": "将用云端数据覆盖本机数据（本机多余的内容会被删除）。确定下载？"
 }

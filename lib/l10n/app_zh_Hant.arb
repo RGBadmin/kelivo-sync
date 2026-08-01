@@ -2102,5 +2102,9 @@
   "syncInitialSyncing": "正在進行首次同步，請保持應用開啟…",
   "syncRestartRequired": "首次同步完成",
   "syncRestartContent": "雲端資料已下載並合併，需要重新啟動應用以載入全部資料。",
-  "syncRestartOk": "立即重新啟動"
+  "syncRestartOk": "立即重新啟動",
+  "syncUploadNow": "上傳到雲",
+  "syncDownloadNow": "從雲下載",
+  "syncUploadConfirmBody": "將用本機資料覆蓋雲端版本（雲端多餘的內容會被刪除）。確定上傳？",
+  "syncDownloadConfirmBody": "將用雲端資料覆蓋本機資料（本機多餘的內容會被刪除）。確定下載？"
 }

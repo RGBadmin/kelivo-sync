@@ -5729,6 +5729,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get syncRestartOk => '立即重启';
+
+  @override
+  String get syncUploadNow => '上传到云';
+
+  @override
+  String get syncDownloadNow => '从云下载';
+
+  @override
+  String get syncUploadConfirmBody => '将用本机数据覆盖云端版本（云端多余的内容会被删除）。确定上传？';
+
+  @override
+  String get syncDownloadConfirmBody => '将用云端数据覆盖本机数据（本机多余的内容会被删除）。确定下载？';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -11456,6 +11468,18 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get syncRestartOk => '立即重启';
+
+  @override
+  String get syncUploadNow => '上传到云';
+
+  @override
+  String get syncDownloadNow => '从云下载';
+
+  @override
+  String get syncUploadConfirmBody => '将用本机数据覆盖云端版本（云端多余的内容会被删除）。确定上传？';
+
+  @override
+  String get syncDownloadConfirmBody => '将用云端数据覆盖本机数据（本机多余的内容会被删除）。确定下载？';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -17183,4 +17207,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get syncRestartOk => '立即重新啟動';
+
+  @override
+  String get syncUploadNow => '上傳到雲';
+
+  @override
+  String get syncDownloadNow => '從雲下載';
+
+  @override
+  String get syncUploadConfirmBody => '將用本機資料覆蓋雲端版本（雲端多餘的內容會被刪除）。確定上傳？';
+
+  @override
+  String get syncDownloadConfirmBody => '將用雲端資料覆蓋本機資料（本機多餘的內容會被刪除）。確定下載？';
 }

@@ -5964,4 +5964,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncRestartOk => 'Restart now';
+
+  @override
+  String get syncUploadNow => 'Upload to cloud';
+
+  @override
+  String get syncDownloadNow => 'Download from cloud';
+
+  @override
+  String get syncUploadConfirmBody =>
+      'This device\'s data will overwrite the cloud version (extra cloud content is deleted). Upload now?';
+
+  @override
+  String get syncDownloadConfirmBody =>
+      'Cloud data will overwrite this device (extra local content is deleted). Download now?';
 }

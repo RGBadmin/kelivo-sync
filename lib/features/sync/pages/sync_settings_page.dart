@@ -152,6 +152,47 @@ Future<void> runSyncEnableFlow(BuildContext context) async {
   }
 }
 
+/// Shared confirm-and-run for the manual upload/download buttons (used by
+/// both the mobile page and the desktop pane).
+Future<void> confirmManualSyncAction(
+  BuildContext context, {
+  required bool upload,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final cs = Theme.of(context).colorScheme;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: cs.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(upload ? l10n.syncUploadNow : l10n.syncDownloadNow),
+      content: Text(
+        upload ? l10n.syncUploadConfirmBody : l10n.syncDownloadConfirmBody,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text(l10n.syncCancel),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text(l10n.syncEnableConfirmOk),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  final sync = context.read<SyncService>();
+  if (upload) {
+    await sync.uploadNow();
+    return;
+  }
+  final report = await sync.downloadNow();
+  if (report != null && report.businessChanged && context.mounted) {
+    await showSyncRestartRequiredDialog(context);
+  }
+}
+
 Future<void> showSyncRestartRequiredDialog(BuildContext context) {
   final l10n = AppLocalizations.of(context)!;
   return showDialog<void>(
@@ -320,11 +361,26 @@ class SyncSettingsPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _SyncNowButton(
-            label: l10n.syncSyncNow,
-            busy: syncing,
-            enabled: sync.isEnabled && !syncing,
-            onTap: () => context.read<SyncService>().syncNow(),
+          Row(
+            children: [
+              Expanded(
+                child: _SyncNowButton(
+                  label: l10n.syncUploadNow,
+                  busy: syncing,
+                  enabled: sync.isEnabled && !syncing,
+                  onTap: () => confirmManualSyncAction(context, upload: true),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SyncNowButton(
+                  label: l10n.syncDownloadNow,
+                  busy: syncing,
+                  enabled: sync.isEnabled && !syncing,
+                  onTap: () => confirmManualSyncAction(context, upload: false),
+                ),
+              ),
+            ],
           ),
 
           // 同步设置

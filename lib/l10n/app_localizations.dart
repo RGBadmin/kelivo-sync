@@ -10939,6 +10939,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Restart now'**
   String get syncRestartOk;
+
+  /// No description provided for @syncUploadNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload to cloud'**
+  String get syncUploadNow;
+
+  /// No description provided for @syncDownloadNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Download from cloud'**
+  String get syncDownloadNow;
+
+  /// No description provided for @syncUploadConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This device\'s data will overwrite the cloud version (extra cloud content is deleted). Upload now?'**
+  String get syncUploadConfirmBody;
+
+  /// No description provided for @syncDownloadConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud data will overwrite this device (extra local content is deleted). Download now?'**
+  String get syncDownloadConfirmBody;
 }
 
 class _AppLocalizationsDelegate
