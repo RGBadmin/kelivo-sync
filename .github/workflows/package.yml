@@ -64,7 +64,8 @@ jobs:
 
       - name: Write signing key
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+          # -di tolerates stray whitespace/CR in the stored secret.
+          printf '%s' "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -di > android/app/release.keystore
           cat > android/key.properties <<EOF
           storeFile=release.keystore
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
