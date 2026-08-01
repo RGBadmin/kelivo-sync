@@ -230,7 +230,9 @@ class S3BackupClient {
     required String service,
     required String stringToSign,
   }) {
-    final kSecret = utf8.encode('AWS4$secretAccessKey');
+    // Stray whitespace from copy-pasting a secret is invisible in the UI
+    // but breaks every signature; trim defensively.
+    final kSecret = utf8.encode('AWS4${secretAccessKey.trim()}');
     final kDate = _hmacSha256(kSecret, dateStamp);
     final kRegion = _hmacSha256(kDate, region);
     final kService = _hmacSha256(kRegion, service);
