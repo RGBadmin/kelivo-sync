@@ -57,6 +57,11 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
     if (statusCode == 401 || statusCode == 403) {
       throw RemoteAuthException('WebDAV $operation $uri: HTTP $statusCode');
     }
+    if (statusCode == 429 || statusCode == 503) {
+      throw RemoteRateLimitedException(
+        'WebDAV $operation $uri: HTTP $statusCode',
+      );
+    }
     throw Exception(
       'WebDAV $operation failed at $uri: HTTP $statusCode'
       '${body == null || body.isEmpty ? '' : ' $body'}',
@@ -128,7 +133,10 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
           );
         case 304:
           return const RemoteObjectUnchanged();
+        // 409: the parent collection does not exist yet (fresh server) —
+        // semantically the object is missing.
         case 404:
+        case 409:
           return const RemoteObjectMissing();
         default:
           _throwHttp('GET', uri, response.statusCode);
@@ -145,6 +153,24 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
     String? ifMatch,
     bool ifAbsent = false,
     String contentType = 'application/json; charset=utf-8',
+  }) async {
+    return _putObjectAttempt(
+      path,
+      bytes,
+      ifMatch: ifMatch,
+      ifAbsent: ifAbsent,
+      contentType: contentType,
+      retryOnMissingCollection: true,
+    );
+  }
+
+  Future<String?> _putObjectAttempt(
+    String path,
+    Uint8List bytes, {
+    required String? ifMatch,
+    required bool ifAbsent,
+    required String contentType,
+    required bool retryOnMissingCollection,
   }) async {
     final uri = _objectUri(path);
     final client = http.Client();
@@ -163,6 +189,19 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
       if (response.statusCode == 412) {
         throw RemotePreconditionFailedException(path);
       }
+      // 409 Conflict: the parent collection does not exist yet. Create the
+      // sync directories and retry once.
+      if (response.statusCode == 409 && retryOnMissingCollection) {
+        await ensureReady();
+        return _putObjectAttempt(
+          path,
+          bytes,
+          ifMatch: ifMatch,
+          ifAbsent: ifAbsent,
+          contentType: contentType,
+          retryOnMissingCollection: false,
+        );
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         _throwHttp('PUT', uri, response.statusCode);
       }
@@ -174,6 +213,15 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
 
   @override
   Future<void> putFile(String path, File file, {String? contentType}) async {
+    await _putFileAttempt(path, file, contentType, true);
+  }
+
+  Future<void> _putFileAttempt(
+    String path,
+    File file,
+    String? contentType,
+    bool retryOnMissingCollection,
+  ) async {
     final uri = _objectUri(path);
     final client = http.Client();
     try {
@@ -192,6 +240,10 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
       final response = await client
           .send(request)
           .then(http.Response.fromStream);
+      if (response.statusCode == 409 && retryOnMissingCollection) {
+        await ensureReady();
+        return _putFileAttempt(path, file, contentType, false);
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         _throwHttp('PUT', uri, response.statusCode);
       }

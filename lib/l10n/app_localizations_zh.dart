@@ -5716,6 +5716,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get syncChecking => '正在检查云端数据…';
+
+  @override
+  String get syncInitialSyncing => '正在进行首次同步，请保持应用打开…';
+
+  @override
+  String get syncRestartRequired => '首次同步完成';
+
+  @override
+  String get syncRestartContent => '云端数据已下载并合并，需要重启应用以加载全部数据。';
+
+  @override
+  String get syncRestartOk => '立即重启';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -11430,6 +11442,18 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get syncChecking => '正在检查云端数据…';
+
+  @override
+  String get syncInitialSyncing => '正在进行首次同步，请保持应用打开…';
+
+  @override
+  String get syncRestartRequired => '首次同步完成';
+
+  @override
+  String get syncRestartContent => '云端数据已下载并合并，需要重启应用以加载全部数据。';
+
+  @override
+  String get syncRestartOk => '立即重启';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -17144,4 +17168,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get syncChecking => '正在檢查雲端資料…';
+
+  @override
+  String get syncInitialSyncing => '正在進行首次同步，請保持應用開啟…';
+
+  @override
+  String get syncRestartRequired => '首次同步完成';
+
+  @override
+  String get syncRestartContent => '雲端資料已下載並合併，需要重新啟動應用以載入全部資料。';
+
+  @override
+  String get syncRestartOk => '立即重新啟動';
 }

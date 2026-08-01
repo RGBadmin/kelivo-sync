@@ -8,7 +8,9 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/loading_dialog_card.dart';
+import '../../../shared/widgets/restart_app_action.dart';
 import '../../../shared/widgets/snackbar.dart';
+import '../../../utils/platform_utils.dart';
 
 const List<int> _pollOptions = <int>[1, 3, 5, 10, 30];
 
@@ -117,7 +119,65 @@ Future<void> runSyncEnableFlow(BuildContext context) async {
     ),
   );
   if (confirmed != true) return;
-  await sync.setEnabled(true);
+  if (!context.mounted) return;
+
+  // First sync runs in the foreground: full download/upload with the remote,
+  // so the user sees progress and knows when it is safe to restart.
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => LoadingDialogCard(label: l10n.syncInitialSyncing),
+  );
+  SyncPullReport report;
+  try {
+    report = await sync.enableWithInitialSync();
+  } catch (error) {
+    if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      showAppSnackBar(
+        context,
+        message: l10n.syncProbeFailedMessage('$error'),
+        type: NotificationType.error,
+      );
+    }
+    return;
+  }
+  if (!context.mounted) return;
+  Navigator.of(context, rootNavigator: true).pop();
+
+  // Cloud data was merged in: settings-backed providers only fully refresh
+  // on a cold start, so prompt for a restart like the backup restore does.
+  if (report.uiRefreshNeeded) {
+    await showSyncRestartRequiredDialog(context);
+  }
+}
+
+Future<void> showSyncRestartRequiredDialog(BuildContext context) {
+  final l10n = AppLocalizations.of(context)!;
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: Theme.of(dialogContext).colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(l10n.syncRestartRequired),
+      content: Text(l10n.syncRestartContent),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            if (await requestAppRestart(
+                  dialogContext,
+                  PlatformUtils.restartApp,
+                ) &&
+                dialogContext.mounted) {
+              Navigator.of(dialogContext).pop();
+            }
+          },
+          child: Text(l10n.syncRestartOk),
+        ),
+      ],
+    ),
+  );
 }
 
 class SyncSettingsPage extends StatelessWidget {

@@ -2098,5 +2098,9 @@
   "syncEnableConfirmOk": "啟用",
   "syncCancel": "取消",
   "syncUnknownTime": "未知",
-  "syncChecking": "正在檢查雲端資料…"
+  "syncChecking": "正在檢查雲端資料…",
+  "syncInitialSyncing": "正在進行首次同步，請保持應用開啟…",
+  "syncRestartRequired": "首次同步完成",
+  "syncRestartContent": "雲端資料已下載並合併，需要重新啟動應用以載入全部資料。",
+  "syncRestartOk": "立即重新啟動"
 }

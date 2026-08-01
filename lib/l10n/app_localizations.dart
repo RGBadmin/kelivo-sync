@@ -10915,6 +10915,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Checking cloud data…'**
   String get syncChecking;
+
+  /// No description provided for @syncInitialSyncing.
+  ///
+  /// In en, this message translates to:
+  /// **'Running the first sync, please keep the app open…'**
+  String get syncInitialSyncing;
+
+  /// No description provided for @syncRestartRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'First sync finished'**
+  String get syncRestartRequired;
+
+  /// No description provided for @syncRestartContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud data has been downloaded and merged. Restart the app to load everything.'**
+  String get syncRestartContent;
+
+  /// No description provided for @syncRestartOk.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart now'**
+  String get syncRestartOk;
 }
 
 class _AppLocalizationsDelegate

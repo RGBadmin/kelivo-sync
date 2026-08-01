@@ -5950,4 +5950,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncChecking => 'Checking cloud data…';
+
+  @override
+  String get syncInitialSyncing =>
+      'Running the first sync, please keep the app open…';
+
+  @override
+  String get syncRestartRequired => 'First sync finished';
+
+  @override
+  String get syncRestartContent =>
+      'Cloud data has been downloaded and merged. Restart the app to load everything.';
+
+  @override
+  String get syncRestartOk => 'Restart now';
 }

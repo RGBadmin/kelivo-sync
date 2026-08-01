@@ -24,6 +24,17 @@ final class RemoteAuthException implements Exception {
   String toString() => 'RemoteAuthException($message)';
 }
 
+/// The server is rate-limiting us (429/503, common on Jianguoyun WebDAV).
+/// The engine backs off with a LONG delay instead of hammering the server.
+final class RemoteRateLimitedException implements Exception {
+  const RemoteRateLimitedException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'RemoteRateLimitedException($message)';
+}
+
 sealed class RemoteGetResult {
   const RemoteGetResult();
 }

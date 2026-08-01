@@ -1,10 +1,12 @@
-name: Package Windows and Android
+name: Package and Release
 
 on:
   workflow_dispatch:
   push:
     branches: [master]
-    paths: ['.github/workflows/package.yml']
+
+permissions:
+  contents: write
 
 jobs:
   windows:
@@ -63,8 +65,51 @@ jobs:
       - name: Build APK (split per ABI)
         run: flutter build apk --release --split-per-abi
 
+      - name: Rename APKs
+        run: |
+          cd build/app/outputs/flutter-apk
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            mv "app-$abi-release.apk" "kelivo-sync-$abi.apk"
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: kelivo-sync-android-apks
-          path: build/app/outputs/flutter-apk/app-*-release.apk
+          path: build/app/outputs/flutter-apk/kelivo-sync-*.apk
+
+  release:
+    name: Publish Release
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(grep 'version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish rolling latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Kelivo Sync ${{ steps.version.outputs.version }} (${{ steps.version.outputs.sha }})
+          body: |
+            自动构建的最新版本。
+            - `kelivo-sync-windows-x64.zip`：Windows 桌面版，解压运行 kelivo.exe
+            - `kelivo-sync-arm64-v8a.apk`：安卓（现代手机装这个）
+            - `kelivo-sync-armeabi-v7a.apk`：安卓 32 位老设备
+            - `kelivo-sync-x86_64.apk`：安卓模拟器
+            包名 com.psyche.kelivo.sync，可与官方版 Kelivo 共存安装。
+          files: artifacts/*

@@ -387,6 +387,14 @@ final class SyncEngine {
     return pullReport.merge(pushReport.pulled);
   }
 
+  /// True when the dirty queue or un-uploaded tombstones await a push.
+  Future<bool> hasPendingLocalChanges() async {
+    final dirty = await _stateStore.snapshotDirty();
+    if (dirty.isNotEmpty) return true;
+    final tombstones = await _stateStore.allTombstones();
+    return tombstones.any((tombstone) => !tombstone.uploaded);
+  }
+
   // ===== Internals =====
 
   Future<bool> _uploadIfChanged(

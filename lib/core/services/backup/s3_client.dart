@@ -919,6 +919,9 @@ class S3BackupClient {
     if (res.statusCode == 401 || res.statusCode == 403) {
       throw RemoteAuthException(_extractErrorMessage(res));
     }
+    if (res.statusCode == 429 || res.statusCode == 503) {
+      throw RemoteRateLimitedException(_extractErrorMessage(res));
+    }
     if (res.statusCode != 200) {
       throw Exception('S3 get failed: ${_extractErrorMessage(res)}');
     }
@@ -952,6 +955,9 @@ class S3BackupClient {
     }
     if (res.statusCode == 401 || res.statusCode == 403) {
       throw RemoteAuthException(_extractErrorMessage(res));
+    }
+    if (res.statusCode == 429 || res.statusCode == 503) {
+      throw RemoteRateLimitedException(_extractErrorMessage(res));
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('S3 put failed: ${_extractErrorMessage(res)}');

@@ -64,3 +64,5 @@ internationalization.md
 /.agents/
 /skills-lock.json
 /.scratch/
+
+dist/

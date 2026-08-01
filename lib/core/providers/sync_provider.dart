@@ -23,6 +23,8 @@ import '../services/sync/sync_state_store.dart';
 import '../services/sync/sync_write_observer.dart';
 import '../services/sync/webdav_sync_remote_store.dart';
 
+export '../services/sync/sync_engine.dart' show SyncPullReport;
+
 enum SyncBackendKind { webdav, s3 }
 
 enum SyncPhase {
@@ -82,9 +84,14 @@ class SyncService extends ChangeNotifier
   static const webdavConfigKey = 'webdav_config_v1';
   static const s3ConfigKey = 's3_config_v1';
 
-  static const _debounceDuration = Duration(seconds: 3);
-  static const _minRetryDelay = Duration(seconds: 2);
+  // Rate-limit friendly cadence: WebDAV providers like Jianguoyun throttle
+  // aggressively (HTTP 503), so changes coalesce for 10s and automatic
+  // rounds never run more often than every 20s.
+  static const _debounceDuration = Duration(seconds: 10);
+  static const _minAutoRoundGap = Duration(seconds: 20);
+  static const _minRetryDelay = Duration(seconds: 5);
   static const _maxRetryDelay = Duration(minutes: 5);
+  static const _rateLimitedRetryDelay = Duration(minutes: 3);
   static const defaultPollMinutes = 5;
 
   final ChatDatabaseRepository _chatRepository;
@@ -102,6 +109,7 @@ class SyncService extends ChangeNotifier
   SyncPhase _phase = SyncPhase.disabled;
   String? _lastError;
   DateTime? _lastSyncAt;
+  DateTime? _lastRoundAt;
   bool _syncing = false;
   bool _followUpRequested = false;
   int _consecutiveFailures = 0;
@@ -138,7 +146,7 @@ class SyncService extends ChangeNotifier
     }
     await _ensureEngine();
     _startPolling();
-    unawaited(_runSync(full: true));
+    unawaited(_runSync(full: true, auto: false));
   }
 
   @override
@@ -169,7 +177,7 @@ class SyncService extends ChangeNotifier
       }
     } else if (state == AppLifecycleState.resumed) {
       _startPolling();
-      unawaited(_runSync(full: true));
+      unawaited(_runSync(full: true, auto: false));
     }
   }
 
@@ -203,7 +211,53 @@ class SyncService extends ChangeNotifier
   Future<void> syncNow() async {
     if (!_enabled) return;
     _retryTimer?.cancel();
-    await _runSync(full: true);
+    await _runSync(full: true, auto: false);
+  }
+
+  /// Enable flow for the settings UI: switches sync on, creates the remote
+  /// directories, then runs the FIRST full sync synchronously so the caller
+  /// can show progress and — when cloud data was downloaded — prompt for a
+  /// restart. Later rounds are incremental and run in the background.
+  Future<SyncPullReport> enableWithInitialSync() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(enabledKey, true);
+    _enabled = true;
+    final store = _buildStore();
+    if (store == null) {
+      _lastError = 'sync_backend_not_configured';
+      _setPhase(SyncPhase.configError);
+      throw StateError('sync_backend_not_configured');
+    }
+    _syncing = true;
+    _lastRoundAt = DateTime.now();
+    _setPhase(SyncPhase.syncing);
+    try {
+      final engine = await _ensureEngine();
+      // Create kelivo_sync/ and its subdirectories up front; WebDAV servers
+      // answer 409 on writes into a missing collection.
+      await store.ensureReady();
+      final report = await engine.fullSync(store);
+      await _applyUiRefresh(report);
+      _consecutiveFailures = 0;
+      _lastError = null;
+      _lastSyncAt = DateTime.now();
+      _setPhase(SyncPhase.idle);
+      return report;
+    } on RemoteRateLimitedException catch (error) {
+      _lastError = '服务器限流 (${error.message})，已暂停并将稍后自动重试';
+      _setPhase(SyncPhase.retrying);
+      _scheduleRetry(_rateLimitedRetryDelay);
+      rethrow;
+    } catch (error) {
+      _lastError = '$error';
+      _setPhase(SyncPhase.retrying);
+      _scheduleRetry(_backoffDelay());
+      rethrow;
+    } finally {
+      _syncing = false;
+      _startPolling();
+      notifyListeners();
+    }
   }
 
   Future<void> setEnabled(bool value) async {
@@ -335,11 +389,26 @@ class SyncService extends ChangeNotifier
     });
   }
 
-  Future<void> _runSync({bool full = false}) async {
+  Future<void> _runSync({bool full = false, bool auto = true}) async {
     if (!_enabled || _disposed) return;
     if (_syncing) {
       _followUpRequested = true;
       return;
+    }
+    // Automatic rounds keep a minimum gap so a chatty session cannot hammer
+    // rate-limited servers; the postponed round is rescheduled, not lost.
+    if (auto) {
+      final lastRound = _lastRoundAt;
+      if (lastRound != null) {
+        final sinceLast = DateTime.now().difference(lastRound);
+        if (sinceLast < _minAutoRoundGap) {
+          _debounceTimer?.cancel();
+          _debounceTimer = Timer(_minAutoRoundGap - sinceLast, () {
+            unawaited(_runSync(full: full));
+          });
+          return;
+        }
+      }
     }
     final store = _buildStore();
     if (store == null) {
@@ -348,6 +417,7 @@ class SyncService extends ChangeNotifier
       return;
     }
     _syncing = true;
+    _lastRoundAt = DateTime.now();
     _setPhase(SyncPhase.syncing);
     try {
       final engine = await _ensureEngine();
@@ -355,9 +425,15 @@ class SyncService extends ChangeNotifier
       if (full) {
         report = await engine.fullSync(store);
       } else {
-        final pushReport = await engine.pushOnce(store);
-        final pullReport = await engine.pullOnce(store);
-        report = pushReport.pulled.merge(pullReport);
+        // One manifest fetch per round: pushOnce already pulls unapplied
+        // remote changes before writing, so a dirty round needs no separate
+        // pull; a clean round only pulls.
+        final dirty = await engine.hasPendingLocalChanges();
+        if (dirty) {
+          report = (await engine.pushOnce(store)).pulled;
+        } else {
+          report = await engine.pullOnce(store);
+        }
       }
       await _applyUiRefresh(report);
       _consecutiveFailures = 0;
@@ -373,6 +449,12 @@ class SyncService extends ChangeNotifier
     } on RemoteAuthException catch (error) {
       _lastError = error.message;
       _setPhase(SyncPhase.configError);
+    } on RemoteRateLimitedException catch (error) {
+      // Hammering a throttled server extends the ban; wait several minutes.
+      _consecutiveFailures += 1;
+      _lastError = '服务器限流 (${error.message})，已暂停并将稍后自动重试';
+      _setPhase(SyncPhase.retrying);
+      _scheduleRetry(_rateLimitedRetryDelay * _consecutiveFailures.clamp(1, 5));
     } catch (error) {
       _consecutiveFailures += 1;
       _lastError = '$error';

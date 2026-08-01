@@ -2552,5 +2552,9 @@
   "syncEnableConfirmOk": "Enable",
   "syncCancel": "Cancel",
   "syncUnknownTime": "Unknown",
-  "syncChecking": "Checking cloud data…"
+  "syncChecking": "Checking cloud data…",
+  "syncInitialSyncing": "Running the first sync, please keep the app open…",
+  "syncRestartRequired": "First sync finished",
+  "syncRestartContent": "Cloud data has been downloaded and merged. Restart the app to load everything.",
+  "syncRestartOk": "Restart now"
 }
