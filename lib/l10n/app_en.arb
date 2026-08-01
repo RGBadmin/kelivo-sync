@@ -2498,5 +2498,59 @@
   "imageSettingsPageCustomQualityTitle": "Compression Quality",
   "imageSettingsPageCompressTransparentTitle": "Compress Transparent & Animated Images",
   "imageSettingsPageCompressTransparentSubtitle": "When enabled, transparent PNG, GIF, and similar formats are compressed; transparent areas become white and animations keep only the first frame.",
-  "imageSettingsPageFooter": "Compression happens when images are added. Previously saved or sent images are not affected. Compressed images are sent as JPEG files."
+  "imageSettingsPageFooter": "Compression happens when images are added. Previously saved or sent images are not affected. Compressed images are sent as JPEG files.",
+  "syncPageTitle": "Sync",
+  "syncStatusSectionTitle": "Status",
+  "syncStatusLabel": "Current Status",
+  "syncStatusIdle": "Idle",
+  "syncStatusSyncing": "Syncing",
+  "syncStatusRetrying": "Error, retrying soon",
+  "syncStatusConfigError": "Configuration or credential error",
+  "syncStatusNeedsAppUpdate": "Cloud data requires a newer app version",
+  "syncStatusDisabled": "Disabled",
+  "syncLastSyncAt": "Last Synced",
+  "syncNeverSynced": "Never",
+  "syncClockSkewWarning": "This device's clock looks incorrect and may affect sync results",
+  "syncSyncNow": "Sync Now",
+  "syncSettingsSectionTitle": "Sync Settings",
+  "syncEnableTitle": "Enable Sync",
+  "syncBackendSectionTitle": "Sync Backend",
+  "syncBackendWebDav": "WebDAV",
+  "syncBackendS3": "S3",
+  "syncBackendConfigHint": "Server address and credentials are configured on the Backup page",
+  "syncPollIntervalSectionTitle": "Polling Interval",
+  "syncPollIntervalMinutes": "{minutes} min",
+  "@syncPollIntervalMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "syncNotConfiguredMessage": "Please configure a WebDAV or S3 server on the Backup page first",
+  "syncProbeFailedMessage": "Failed to connect to the cloud: {error}",
+  "@syncProbeFailedMessage": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "syncEnableConfirmTitle": "Enable Sync",
+  "syncEnableConfirmHasData": "The cloud already has sync data (revision {revision}, last written {time}). After enabling, it will be merged both ways with local data. Data is stored in plaintext on your server.",
+  "@syncEnableConfirmHasData": {
+    "placeholders": {
+      "revision": {
+        "type": "int"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "syncEnableConfirmNoData": "All local data will be uploaded to the cloud. Data is stored in plaintext on your server.",
+  "syncEnableConfirmOk": "Enable",
+  "syncCancel": "Cancel",
+  "syncUnknownTime": "Unknown",
+  "syncChecking": "Checking cloud data…"
 }

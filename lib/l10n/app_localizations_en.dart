@@ -5849,4 +5849,105 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get imageSettingsPageFooter =>
       'Compression happens when images are added. Previously saved or sent images are not affected. Compressed images are sent as JPEG files.';
+
+  @override
+  String get syncPageTitle => 'Sync';
+
+  @override
+  String get syncStatusSectionTitle => 'Status';
+
+  @override
+  String get syncStatusLabel => 'Current Status';
+
+  @override
+  String get syncStatusIdle => 'Idle';
+
+  @override
+  String get syncStatusSyncing => 'Syncing';
+
+  @override
+  String get syncStatusRetrying => 'Error, retrying soon';
+
+  @override
+  String get syncStatusConfigError => 'Configuration or credential error';
+
+  @override
+  String get syncStatusNeedsAppUpdate =>
+      'Cloud data requires a newer app version';
+
+  @override
+  String get syncStatusDisabled => 'Disabled';
+
+  @override
+  String get syncLastSyncAt => 'Last Synced';
+
+  @override
+  String get syncNeverSynced => 'Never';
+
+  @override
+  String get syncClockSkewWarning =>
+      'This device\'s clock looks incorrect and may affect sync results';
+
+  @override
+  String get syncSyncNow => 'Sync Now';
+
+  @override
+  String get syncSettingsSectionTitle => 'Sync Settings';
+
+  @override
+  String get syncEnableTitle => 'Enable Sync';
+
+  @override
+  String get syncBackendSectionTitle => 'Sync Backend';
+
+  @override
+  String get syncBackendWebDav => 'WebDAV';
+
+  @override
+  String get syncBackendS3 => 'S3';
+
+  @override
+  String get syncBackendConfigHint =>
+      'Server address and credentials are configured on the Backup page';
+
+  @override
+  String get syncPollIntervalSectionTitle => 'Polling Interval';
+
+  @override
+  String syncPollIntervalMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get syncNotConfiguredMessage =>
+      'Please configure a WebDAV or S3 server on the Backup page first';
+
+  @override
+  String syncProbeFailedMessage(String error) {
+    return 'Failed to connect to the cloud: $error';
+  }
+
+  @override
+  String get syncEnableConfirmTitle => 'Enable Sync';
+
+  @override
+  String syncEnableConfirmHasData(int revision, String time) {
+    return 'The cloud already has sync data (revision $revision, last written $time). After enabling, it will be merged both ways with local data. Data is stored in plaintext on your server.';
+  }
+
+  @override
+  String get syncEnableConfirmNoData =>
+      'All local data will be uploaded to the cloud. Data is stored in plaintext on your server.';
+
+  @override
+  String get syncEnableConfirmOk => 'Enable';
+
+  @override
+  String get syncCancel => 'Cancel';
+
+  @override
+  String get syncUnknownTime => 'Unknown';
+
+  @override
+  String get syncChecking => 'Checking cloud data…';
 }

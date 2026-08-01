@@ -73,6 +73,14 @@ final class BusinessPreferences {
   /// so the serialized queue reaches SQLite before the process exits.
   Future<void> flushPendingWrites() => _writeTail;
 
+  /// Re-reads the persisted business snapshot and swaps the in-memory view.
+  /// The sync engine calls this after merging remote business data; queueing
+  /// through the serialized write tail guarantees it never interleaves with
+  /// a user write.
+  Future<void> applyExternalSnapshot() => _serialize(() async {
+    _applyRuntimeSnapshot(await _repository.readSnapshot());
+  });
+
   Object? get(String key) => _copyForRead(_values[key]);
 
   bool containsKey(String key) => _values.containsKey(key);

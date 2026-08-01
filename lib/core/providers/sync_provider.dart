@@ -1,0 +1,425 @@
+// ignore_for_file: prefer_initializing_formals
+
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../utils/app_directories.dart';
+import '../database/business_preferences.dart';
+import '../database/business_repository.dart';
+import '../database/chat_database_repository.dart';
+import '../models/backup.dart';
+import '../services/chat/chat_service.dart';
+import '../services/sync/s3_sync_remote_store.dart';
+import '../services/sync/sync_asset_transfer.dart';
+import '../services/sync/sync_clock.dart';
+import '../services/sync/sync_engine.dart';
+import '../services/sync/sync_manifest.dart';
+import '../services/sync/sync_merger.dart';
+import '../services/sync/sync_object_codec.dart';
+import '../services/sync/sync_remote_store.dart';
+import '../services/sync/sync_state_store.dart';
+import '../services/sync/sync_write_observer.dart';
+import '../services/sync/webdav_sync_remote_store.dart';
+
+enum SyncBackendKind { webdav, s3 }
+
+enum SyncPhase {
+  /// Sync switched off on this device.
+  disabled,
+
+  /// Enabled and quiet; nothing in flight.
+  idle,
+
+  /// A pull/push round is running.
+  syncing,
+
+  /// Last round failed with a network-ish error; backoff retry scheduled.
+  retrying,
+
+  /// Credentials rejected or config invalid; no automatic retries.
+  configError,
+
+  /// The remote was written by a newer schema; user must update the app.
+  needsAppUpdate,
+}
+
+/// Probe result for the enable-wizard: what already lives on the remote.
+typedef SyncRemoteProbe = ({
+  bool hasData,
+  int revision,
+  String lastWriter,
+  DateTime? writtenAt,
+});
+
+/// Orchestrates automatic multi-device sync: startup reconcile, debounced
+/// push on local changes, periodic remote polling, lifecycle flushes.
+class SyncService extends ChangeNotifier
+    with WidgetsBindingObserver
+    implements SyncWriteObserver {
+  SyncService({
+    required ChatDatabaseRepository chatRepository,
+    required BusinessRepository businessRepository,
+    required BusinessPreferences businessPreferences,
+    required ChatService chatService,
+    required String installationId,
+  }) : _chatRepository = chatRepository,
+       _businessRepository = businessRepository,
+       _businessPreferences = businessPreferences,
+       _chatService = chatService,
+       _installationId = installationId {
+    _chatRepository.syncObserver = this;
+    _chatRepository.syncDeviceId = installationId;
+    _businessRepository.syncObserver = this;
+    _businessRepository.syncDeviceId = installationId;
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  static const enabledKey = 'sync_enabled_v1';
+  static const backendKey = 'sync_backend_v1';
+  static const pollIntervalKey = 'sync_poll_interval_minutes_v1';
+  static const webdavConfigKey = 'webdav_config_v1';
+  static const s3ConfigKey = 's3_config_v1';
+
+  static const _debounceDuration = Duration(seconds: 3);
+  static const _minRetryDelay = Duration(seconds: 2);
+  static const _maxRetryDelay = Duration(minutes: 5);
+  static const defaultPollMinutes = 5;
+
+  final ChatDatabaseRepository _chatRepository;
+  final BusinessRepository _businessRepository;
+  final BusinessPreferences _businessPreferences;
+  final ChatService _chatService;
+  final String _installationId;
+
+  SyncEngine? _engine;
+
+  bool _enabled = false;
+  SyncBackendKind _backend = SyncBackendKind.webdav;
+  int _pollMinutes = defaultPollMinutes;
+
+  SyncPhase _phase = SyncPhase.disabled;
+  String? _lastError;
+  DateTime? _lastSyncAt;
+  bool _syncing = false;
+  bool _followUpRequested = false;
+  int _consecutiveFailures = 0;
+  bool _disposed = false;
+
+  Timer? _debounceTimer;
+  Timer? _pollTimer;
+  Timer? _retryTimer;
+
+  /// Optional hook the app shell installs to reload settings-backed
+  /// providers after remote business data was applied.
+  VoidCallback? onBusinessDataApplied;
+
+  SyncPhase get phase => _phase;
+  bool get isEnabled => _enabled;
+  SyncBackendKind get backend => _backend;
+  int get pollMinutes => _pollMinutes;
+  String? get lastError => _lastError;
+  DateTime? get lastSyncAt => _lastSyncAt;
+  bool get wallClockLooksSkewed => SyncClock.wallClockLooksSkewed();
+
+  // ===== Lifecycle =====
+
+  Future<void> start() async {
+    final preferences = await SharedPreferences.getInstance();
+    _enabled = preferences.getBool(enabledKey) ?? false;
+    _backend = (preferences.getString(backendKey) ?? 'webdav') == 's3'
+        ? SyncBackendKind.s3
+        : SyncBackendKind.webdav;
+    _pollMinutes = preferences.getInt(pollIntervalKey) ?? defaultPollMinutes;
+    if (!_enabled) {
+      _setPhase(SyncPhase.disabled);
+      return;
+    }
+    await _ensureEngine();
+    _startPolling();
+    unawaited(_runSync(full: true));
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _debounceTimer?.cancel();
+    _pollTimer?.cancel();
+    _retryTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    if (identical(_chatRepository.syncObserver, this)) {
+      _chatRepository.syncObserver = null;
+    }
+    if (identical(_businessRepository.syncObserver, this)) {
+      _businessRepository.syncObserver = null;
+    }
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_enabled) return;
+    if (state == AppLifecycleState.paused) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+      if (_debounceTimer?.isActive ?? false) {
+        _debounceTimer!.cancel();
+        unawaited(_runSync());
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      _startPolling();
+      unawaited(_runSync(full: true));
+    }
+  }
+
+  /// Registered with AppExitFlush: pushes pending changes before exit.
+  Future<void> flushPendingPush() async {
+    if (!_enabled) return;
+    _debounceTimer?.cancel();
+    try {
+      final engine = await _ensureEngine();
+      final store = _buildStore();
+      if (store == null) return;
+      await engine.pushOnce(store);
+    } catch (_) {
+      // Exit flush is best effort; the dirty queue survives in SQLite.
+    }
+  }
+
+  // ===== SyncWriteObserver =====
+
+  @override
+  void onLocalChange({required SyncScope scope, required bool quiet}) {
+    if (!_enabled || quiet || _disposed) return;
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_debounceDuration, () {
+      unawaited(_runSync());
+    });
+  }
+
+  // ===== User actions =====
+
+  Future<void> syncNow() async {
+    if (!_enabled) return;
+    _retryTimer?.cancel();
+    await _runSync(full: true);
+  }
+
+  Future<void> setEnabled(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(enabledKey, value);
+    _enabled = value;
+    if (value) {
+      await _ensureEngine();
+      _startPolling();
+      _setPhase(SyncPhase.idle);
+      unawaited(_runSync(full: true));
+    } else {
+      _debounceTimer?.cancel();
+      _pollTimer?.cancel();
+      _retryTimer?.cancel();
+      _setPhase(SyncPhase.disabled);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setBackend(SyncBackendKind value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      backendKey,
+      value == SyncBackendKind.s3 ? 's3' : 'webdav',
+    );
+    _backend = value;
+    notifyListeners();
+    if (_enabled) unawaited(_runSync(full: true));
+  }
+
+  Future<void> setPollMinutes(int minutes) async {
+    final normalized = minutes.clamp(1, 720);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setInt(pollIntervalKey, normalized);
+    _pollMinutes = normalized;
+    if (_enabled) _startPolling();
+    notifyListeners();
+  }
+
+  /// Checks whether the configured backend already holds sync data (used by
+  /// the enable wizard) and that the credentials work.
+  Future<SyncRemoteProbe> probeRemote() async {
+    final store = _buildStore();
+    if (store == null) {
+      throw StateError('sync_backend_not_configured');
+    }
+    final result = await store.getObject(SyncManifest.path);
+    if (result is RemoteObjectData) {
+      final manifest = SyncManifest.decode(result.bytes);
+      return (
+        hasData: manifest.objects.isNotEmpty,
+        revision: manifest.revision,
+        lastWriter: manifest.lastWriter,
+        writtenAt: manifest.writtenAt == 0
+            ? null
+            : DateTime.fromMicrosecondsSinceEpoch(manifest.writtenAt),
+      );
+    }
+    return (hasData: false, revision: 0, lastWriter: '', writtenAt: null);
+  }
+
+  /// True when the selected backend has a plausible configuration.
+  bool get backendConfigured => _buildStore() != null;
+
+  // ===== Internals =====
+
+  Future<SyncEngine> _ensureEngine() async {
+    final existing = _engine;
+    if (existing != null) return existing;
+    final appDataDirectory = await AppDirectories.getAppDataDirectory();
+    final database = _chatRepository.syncDatabase;
+    final stateStore = SyncStateStore(database);
+    await stateStore.initializeClock();
+    final engine = SyncEngine(
+      database: database,
+      stateStore: stateStore,
+      codec: SyncObjectCodec(
+        database: database,
+        appDataDirectory: appDataDirectory,
+      ),
+      merger: SyncMerger(database),
+      assetTransfer: SyncAssetTransfer(
+        database: database,
+        appDataDirectory: appDataDirectory,
+      ),
+      deviceId: _installationId,
+    );
+    await engine.ensureConsistentIdentity();
+    final lastSyncRaw = await stateStore.readMeta(
+      SyncStateStore.metaLastSyncAt,
+    );
+    final lastSyncMicros = int.tryParse(lastSyncRaw ?? '');
+    if (lastSyncMicros != null) {
+      _lastSyncAt = DateTime.fromMicrosecondsSinceEpoch(lastSyncMicros);
+    }
+    _engine = engine;
+    return engine;
+  }
+
+  SyncRemoteStore? _buildStore() {
+    switch (_backend) {
+      case SyncBackendKind.webdav:
+        final raw = _businessPreferences.get(webdavConfigKey);
+        final config = raw is String
+            ? WebDavConfig.fromJsonString(raw)
+            : const WebDavConfig();
+        if (config.url.trim().isEmpty) return null;
+        return WebDavSyncRemoteStore(config);
+      case SyncBackendKind.s3:
+        final raw = _businessPreferences.get(s3ConfigKey);
+        final config = raw is String
+            ? S3Config.fromJsonString(raw)
+            : const S3Config();
+        if (config.endpoint.trim().isEmpty ||
+            config.bucket.trim().isEmpty ||
+            config.accessKeyId.trim().isEmpty ||
+            config.secretAccessKey.trim().isEmpty) {
+          return null;
+        }
+        return S3SyncRemoteStore(config);
+    }
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(Duration(minutes: _pollMinutes), (_) {
+      unawaited(_runSync());
+    });
+  }
+
+  Future<void> _runSync({bool full = false}) async {
+    if (!_enabled || _disposed) return;
+    if (_syncing) {
+      _followUpRequested = true;
+      return;
+    }
+    final store = _buildStore();
+    if (store == null) {
+      _lastError = 'sync_backend_not_configured';
+      _setPhase(SyncPhase.configError);
+      return;
+    }
+    _syncing = true;
+    _setPhase(SyncPhase.syncing);
+    try {
+      final engine = await _ensureEngine();
+      final SyncPullReport report;
+      if (full) {
+        report = await engine.fullSync(store);
+      } else {
+        final pushReport = await engine.pushOnce(store);
+        final pullReport = await engine.pullOnce(store);
+        report = pushReport.pulled.merge(pullReport);
+      }
+      await _applyUiRefresh(report);
+      _consecutiveFailures = 0;
+      _lastError = null;
+      _lastSyncAt = DateTime.now();
+      _setPhase(SyncPhase.idle);
+      if (report.deferredActiveConversations) {
+        _scheduleRetry(const Duration(seconds: 30));
+      }
+    } on SyncSchemaTooNewException {
+      _lastError = 'sync_schema_too_new';
+      _setPhase(SyncPhase.needsAppUpdate);
+    } on RemoteAuthException catch (error) {
+      _lastError = error.message;
+      _setPhase(SyncPhase.configError);
+    } catch (error) {
+      _consecutiveFailures += 1;
+      _lastError = '$error';
+      _setPhase(SyncPhase.retrying);
+      _scheduleRetry(_backoffDelay());
+    } finally {
+      _syncing = false;
+    }
+    if (_followUpRequested && _phase == SyncPhase.idle) {
+      _followUpRequested = false;
+      unawaited(_runSync());
+    } else {
+      _followUpRequested = false;
+    }
+  }
+
+  Future<void> _applyUiRefresh(SyncPullReport report) async {
+    if (!report.uiRefreshNeeded) return;
+    if (report.businessChanged) {
+      await _businessPreferences.applyExternalSnapshot();
+      try {
+        onBusinessDataApplied?.call();
+      } catch (_) {}
+    }
+    if (report.changedConversationIds.isNotEmpty ||
+        report.deletedConversationIds.isNotEmpty) {
+      await _chatService.reloadAfterExternalMerge();
+    }
+  }
+
+  Duration _backoffDelay() {
+    final exponent = _consecutiveFailures.clamp(1, 10);
+    var delay = _minRetryDelay * (1 << (exponent - 1));
+    if (delay > _maxRetryDelay) delay = _maxRetryDelay;
+    return delay;
+  }
+
+  void _scheduleRetry(Duration delay) {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(delay, () {
+      unawaited(_runSync(full: true));
+    });
+  }
+
+  void _setPhase(SyncPhase phase) {
+    if (_disposed) return;
+    _phase = phase;
+    notifyListeners();
+  }
+}

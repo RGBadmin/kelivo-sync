@@ -10735,6 +10735,186 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Compression happens when images are added. Previously saved or sent images are not affected. Compressed images are sent as JPEG files.'**
   String get imageSettingsPageFooter;
+
+  /// No description provided for @syncPageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync'**
+  String get syncPageTitle;
+
+  /// No description provided for @syncStatusSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get syncStatusSectionTitle;
+
+  /// No description provided for @syncStatusLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Current Status'**
+  String get syncStatusLabel;
+
+  /// No description provided for @syncStatusIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Idle'**
+  String get syncStatusIdle;
+
+  /// No description provided for @syncStatusSyncing.
+  ///
+  /// In en, this message translates to:
+  /// **'Syncing'**
+  String get syncStatusSyncing;
+
+  /// No description provided for @syncStatusRetrying.
+  ///
+  /// In en, this message translates to:
+  /// **'Error, retrying soon'**
+  String get syncStatusRetrying;
+
+  /// No description provided for @syncStatusConfigError.
+  ///
+  /// In en, this message translates to:
+  /// **'Configuration or credential error'**
+  String get syncStatusConfigError;
+
+  /// No description provided for @syncStatusNeedsAppUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud data requires a newer app version'**
+  String get syncStatusNeedsAppUpdate;
+
+  /// No description provided for @syncStatusDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Disabled'**
+  String get syncStatusDisabled;
+
+  /// No description provided for @syncLastSyncAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Last Synced'**
+  String get syncLastSyncAt;
+
+  /// No description provided for @syncNeverSynced.
+  ///
+  /// In en, this message translates to:
+  /// **'Never'**
+  String get syncNeverSynced;
+
+  /// No description provided for @syncClockSkewWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This device\'s clock looks incorrect and may affect sync results'**
+  String get syncClockSkewWarning;
+
+  /// No description provided for @syncSyncNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Now'**
+  String get syncSyncNow;
+
+  /// No description provided for @syncSettingsSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Settings'**
+  String get syncSettingsSectionTitle;
+
+  /// No description provided for @syncEnableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable Sync'**
+  String get syncEnableTitle;
+
+  /// No description provided for @syncBackendSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Backend'**
+  String get syncBackendSectionTitle;
+
+  /// No description provided for @syncBackendWebDav.
+  ///
+  /// In en, this message translates to:
+  /// **'WebDAV'**
+  String get syncBackendWebDav;
+
+  /// No description provided for @syncBackendS3.
+  ///
+  /// In en, this message translates to:
+  /// **'S3'**
+  String get syncBackendS3;
+
+  /// No description provided for @syncBackendConfigHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Server address and credentials are configured on the Backup page'**
+  String get syncBackendConfigHint;
+
+  /// No description provided for @syncPollIntervalSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Polling Interval'**
+  String get syncPollIntervalSectionTitle;
+
+  /// No description provided for @syncPollIntervalMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String syncPollIntervalMinutes(int minutes);
+
+  /// No description provided for @syncNotConfiguredMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Please configure a WebDAV or S3 server on the Backup page first'**
+  String get syncNotConfiguredMessage;
+
+  /// No description provided for @syncProbeFailedMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to connect to the cloud: {error}'**
+  String syncProbeFailedMessage(String error);
+
+  /// No description provided for @syncEnableConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable Sync'**
+  String get syncEnableConfirmTitle;
+
+  /// No description provided for @syncEnableConfirmHasData.
+  ///
+  /// In en, this message translates to:
+  /// **'The cloud already has sync data (revision {revision}, last written {time}). After enabling, it will be merged both ways with local data. Data is stored in plaintext on your server.'**
+  String syncEnableConfirmHasData(int revision, String time);
+
+  /// No description provided for @syncEnableConfirmNoData.
+  ///
+  /// In en, this message translates to:
+  /// **'All local data will be uploaded to the cloud. Data is stored in plaintext on your server.'**
+  String get syncEnableConfirmNoData;
+
+  /// No description provided for @syncEnableConfirmOk.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable'**
+  String get syncEnableConfirmOk;
+
+  /// No description provided for @syncCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get syncCancel;
+
+  /// No description provided for @syncUnknownTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get syncUnknownTime;
+
+  /// No description provided for @syncChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking cloud data…'**
+  String get syncChecking;
 }
 
 class _AppLocalizationsDelegate

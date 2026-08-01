@@ -17,8 +17,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.psyche.kelivo"
+        // Distinct application id so this sync build installs alongside the
+        // official Kelivo instead of replacing it.
+        applicationId = "com.psyche.kelivo.sync"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -48,6 +49,10 @@ android {
         getByName("release") {
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                // No keystore configured: fall back to debug signing so the
+                // produced APK is still installable.
+                signingConfig = signingConfigs.getByName("debug")
             }
         }
     }

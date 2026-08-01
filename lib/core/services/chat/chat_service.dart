@@ -2005,6 +2005,20 @@ class ChatService extends ChangeNotifier {
     return report;
   }
 
+  /// Called by the sync engine after remote changes were merged into the
+  /// database behind this service's back. Drops row caches, re-reads the
+  /// conversation summaries and notifies the UI.
+  Future<void> reloadAfterExternalMerge() async {
+    if (!_initialized) return;
+    _messagesCache.clear();
+    _toolEventsCache.clear();
+    _geminiThoughtSigsCache.clear();
+    _messageCounts.clear();
+    _messageOrderIds.clear();
+    await _loadConversationsCache();
+    notifyListeners();
+  }
+
   Future<void> _resetAfterOverwriteRestore() async {
     _messagesCache.clear();
     _draftConversations.clear();

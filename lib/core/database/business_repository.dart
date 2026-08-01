@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../services/sync/sync_clock.dart';
+import '../services/sync/sync_state_store.dart';
+import '../services/sync/sync_write_observer.dart';
 import 'app_database.dart';
 import 'business_data.dart';
 
@@ -11,6 +15,53 @@ final class BusinessRepository {
   static const migrationReceiptKey = 'business_migration_complete_v1';
 
   final AppDatabase _database;
+
+  /// Sync instrumentation. When set, committed business writes mark the
+  /// affected sync object dirty; deletions write tombstones.
+  SyncWriteObserver? syncObserver;
+  String syncDeviceId = 'local';
+  static const _syncSuppressKey = #kelivoSyncSuppress;
+
+  /// Runs [action] with sync dirty-marking suppressed (remote-applied
+  /// changes must not echo back into the push queue). Shares the zone key
+  /// with [ChatDatabaseRepository.runSyncSuppressed].
+  Future<T> runSyncSuppressed<T>(Future<T> Function() action) =>
+      runZoned(action, zoneValues: {_syncSuppressKey: true});
+
+  bool get _syncMarkingSuppressed => Zone.current[_syncSuppressKey] == true;
+
+  Future<void> _markEntitiesDirty(BusinessEntityKind kind) async {
+    if (_syncMarkingSuppressed) return;
+    await SyncStateStore.markDirtyInTransaction(
+      _database,
+      SyncScope.entities,
+      kind.name,
+    );
+    syncObserver?.onLocalChange(scope: SyncScope.entities, quiet: false);
+  }
+
+  Future<void> _markSettingsDirty() async {
+    if (_syncMarkingSuppressed) return;
+    await SyncStateStore.markDirtyInTransaction(
+      _database,
+      SyncScope.settings,
+      '',
+    );
+    syncObserver?.onLocalChange(scope: SyncScope.settings, quiet: false);
+  }
+
+  Future<void> _writeEntityTombstone(
+    BusinessEntityKind kind,
+    String id,
+  ) async {
+    if (_syncMarkingSuppressed) return;
+    await SyncStateStore.writeTombstoneInTransaction(
+      _database,
+      kind: SyncTombstoneKind.entity(kind.name),
+      entityId: id,
+      deviceId: syncDeviceId,
+    );
+  }
 
   /// Used by cross-domain coordinators to fail closed unless both
   /// repositories are backed by the exact same Drift database instance.
@@ -36,7 +87,10 @@ final class BusinessRepository {
     List<BusinessEntityValue> rows,
   ) async {
     _validateRows(kind, rows);
-    await _database.transaction(() => _replaceEntities(kind, rows));
+    await _database.transaction(() async {
+      await _replaceEntities(kind, rows);
+      await _markEntitiesDirty(kind);
+    });
   }
 
   Future<void> synchronizeEntities(
@@ -50,18 +104,23 @@ final class BusinessRepository {
         for (final row in existing) row.id: row,
       };
       final retainedIds = rows.map((row) => row.id).toSet();
+      var changed = false;
       for (final row in existing) {
         if (!retainedIds.contains(row.id)) {
           _assertDecodablePayload(kind, row);
           await _deleteEntity(kind, row.id);
+          await _writeEntityTombstone(kind, row.id);
+          changed = true;
         }
       }
-      final updatedAt = DateTime.now().toUtc().microsecondsSinceEpoch;
+      final updatedAt = SyncClock.nowMicros();
       for (final row in rows) {
         final previous = existingById[row.id];
         if (previous != null && _sameEntity(previous, row)) continue;
         await _upsertEntity(kind, row, updatedAt: updatedAt);
+        changed = true;
       }
+      if (changed) await _markEntitiesDirty(kind);
     });
   }
 
@@ -70,16 +129,19 @@ final class BusinessRepository {
     BusinessEntityValue row,
   ) async {
     _validateRows(kind, <BusinessEntityValue>[row]);
-    await _upsertEntity(
-      kind,
-      row,
-      updatedAt: DateTime.now().toUtc().microsecondsSinceEpoch,
-    );
+    await _database.transaction(() async {
+      await _upsertEntity(kind, row, updatedAt: SyncClock.nowMicros());
+      await _markEntitiesDirty(kind);
+    });
   }
 
   Future<void> deleteEntity(BusinessEntityKind kind, String id) async {
     if (id.isEmpty) return;
-    await _deleteEntity(kind, id);
+    await _database.transaction(() async {
+      await _deleteEntity(kind, id);
+      await _writeEntityTombstone(kind, id);
+      await _markEntitiesDirty(kind);
+    });
   }
 
   Future<Object?> getPreference(String key) async {
@@ -97,22 +159,34 @@ final class BusinessRepository {
   Future<void> setPreference(String key, Object value) async {
     if (key.isEmpty) throw ArgumentError.value(key, 'key');
     final normalized = _normalizePreference(key, value);
-    await _database.customStatement(
-      'INSERT INTO preference_rows (key, value, updated_at) VALUES (?, ?, ?) '
-      'ON CONFLICT(key) DO UPDATE SET value = excluded.value, '
-      'updated_at = excluded.updated_at;',
-      <Object?>[
-        key,
-        jsonEncode(normalized),
-        DateTime.now().toUtc().microsecondsSinceEpoch,
-      ],
-    );
+    await _database.transaction(() async {
+      await _database.customStatement(
+        'INSERT INTO preference_rows (key, value, updated_at) VALUES (?, ?, ?) '
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value, '
+        'updated_at = excluded.updated_at;',
+        <Object?>[key, jsonEncode(normalized), SyncClock.nowMicros()],
+      );
+      await _markSettingsDirty();
+    });
   }
 
-  Future<void> removePreference(String key) => _database.customStatement(
-    'DELETE FROM preference_rows WHERE key = ?;',
-    <Object?>[key],
-  );
+  Future<void> removePreference(String key) async {
+    await _database.transaction(() async {
+      await _database.customStatement(
+        'DELETE FROM preference_rows WHERE key = ?;',
+        <Object?>[key],
+      );
+      if (!_syncMarkingSuppressed) {
+        await SyncStateStore.writeTombstoneInTransaction(
+          _database,
+          kind: SyncTombstoneKind.preference,
+          entityId: key,
+          deviceId: syncDeviceId,
+        );
+      }
+      await _markSettingsDirty();
+    });
+  }
 
   Future<Map<String, Object>> preferenceSnapshot() async {
     final rows = await _database
@@ -208,8 +282,10 @@ final class BusinessRepository {
   }) async {
     for (final kind in BusinessEntityKind.values) {
       await _replaceEntities(kind, snapshot.entities[kind]!);
+      await _markEntitiesDirty(kind);
     }
     await _replacePreferences(preferences);
+    await _markSettingsDirty();
     if (writeReceipt) await _writeMigrationReceipt();
   }
 
@@ -280,7 +356,7 @@ final class BusinessRepository {
     List<BusinessEntityValue> rows,
   ) async {
     await _database.customStatement('DELETE FROM ${kind.tableName};');
-    final updatedAt = DateTime.now().toUtc().microsecondsSinceEpoch;
+    final updatedAt = SyncClock.nowMicros();
     for (final row in rows) {
       await _upsertEntity(kind, row, updatedAt: updatedAt);
     }
@@ -326,7 +402,7 @@ final class BusinessRepository {
 
   Future<void> _replacePreferences(Map<String, Object> preferences) async {
     await _database.customStatement('DELETE FROM preference_rows;');
-    final updatedAt = DateTime.now().toUtc().microsecondsSinceEpoch;
+    final updatedAt = SyncClock.nowMicros();
     for (final entry in preferences.entries) {
       await _database.customStatement(
         'INSERT INTO preference_rows (key, value, updated_at) '

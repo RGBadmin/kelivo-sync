@@ -946,6 +946,18 @@ class $MessageRowsTable extends MessageRows
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -969,6 +981,7 @@ class $MessageRowsTable extends MessageRows
     cachedTokens,
     durationMs,
     messageOrder,
+    updatedAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1127,6 +1140,12 @@ class $MessageRowsTable extends MessageRows
     } else if (isInserting) {
       context.missing(_messageOrderMeta);
     }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
     return context;
   }
 
@@ -1232,6 +1251,10 @@ class $MessageRowsTable extends MessageRows
         DriftSqlType.int,
         data['${effectivePrefix}message_order'],
       )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
     );
   }
 
@@ -1274,6 +1297,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
   final int? cachedTokens;
   final int? durationMs;
   final int messageOrder;
+  final int updatedAt;
   const MessageRow({
     required this.id,
     required this.conversationId,
@@ -1296,6 +1320,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     this.cachedTokens,
     this.durationMs,
     required this.messageOrder,
+    required this.updatedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1357,6 +1382,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       map['duration_ms'] = Variable<int>(durationMs);
     }
     map['message_order'] = Variable<int>(messageOrder);
+    map['updated_at'] = Variable<int>(updatedAt);
     return map;
   }
 
@@ -1409,6 +1435,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ? const Value.absent()
           : Value(durationMs),
       messageOrder: Value(messageOrder),
+      updatedAt: Value(updatedAt),
     );
   }
 
@@ -1445,6 +1472,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       cachedTokens: serializer.fromJson<int?>(json['cachedTokens']),
       durationMs: serializer.fromJson<int?>(json['durationMs']),
       messageOrder: serializer.fromJson<int>(json['messageOrder']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
     );
   }
   @override
@@ -1474,6 +1502,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       'cachedTokens': serializer.toJson<int?>(cachedTokens),
       'durationMs': serializer.toJson<int?>(durationMs),
       'messageOrder': serializer.toJson<int>(messageOrder),
+      'updatedAt': serializer.toJson<int>(updatedAt),
     };
   }
 
@@ -1499,6 +1528,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     Value<int?> cachedTokens = const Value.absent(),
     Value<int?> durationMs = const Value.absent(),
     int? messageOrder,
+    int? updatedAt,
   }) => MessageRow(
     id: id ?? this.id,
     conversationId: conversationId ?? this.conversationId,
@@ -1531,6 +1561,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     cachedTokens: cachedTokens.present ? cachedTokens.value : this.cachedTokens,
     durationMs: durationMs.present ? durationMs.value : this.durationMs,
     messageOrder: messageOrder ?? this.messageOrder,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
   MessageRow copyWithCompanion(MessageRowsCompanion data) {
     return MessageRow(
@@ -1583,6 +1614,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
       messageOrder: data.messageOrder.present
           ? data.messageOrder.value
           : this.messageOrder,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
   }
 
@@ -1609,7 +1641,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           ..write('completionTokens: $completionTokens, ')
           ..write('cachedTokens: $cachedTokens, ')
           ..write('durationMs: $durationMs, ')
-          ..write('messageOrder: $messageOrder')
+          ..write('messageOrder: $messageOrder, ')
+          ..write('updatedAt: $updatedAt')
           ..write(')'))
         .toString();
   }
@@ -1637,6 +1670,7 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
     cachedTokens,
     durationMs,
     messageOrder,
+    updatedAt,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -1662,7 +1696,8 @@ class MessageRow extends DataClass implements Insertable<MessageRow> {
           other.completionTokens == this.completionTokens &&
           other.cachedTokens == this.cachedTokens &&
           other.durationMs == this.durationMs &&
-          other.messageOrder == this.messageOrder);
+          other.messageOrder == this.messageOrder &&
+          other.updatedAt == this.updatedAt);
 }
 
 class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
@@ -1687,6 +1722,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
   final Value<int?> cachedTokens;
   final Value<int?> durationMs;
   final Value<int> messageOrder;
+  final Value<int> updatedAt;
   final Value<int> rowid;
   const MessageRowsCompanion({
     this.id = const Value.absent(),
@@ -1710,6 +1746,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     this.cachedTokens = const Value.absent(),
     this.durationMs = const Value.absent(),
     this.messageOrder = const Value.absent(),
+    this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   MessageRowsCompanion.insert({
@@ -1734,6 +1771,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     this.cachedTokens = const Value.absent(),
     this.durationMs = const Value.absent(),
     required int messageOrder,
+    this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        conversationId = Value(conversationId),
@@ -1763,6 +1801,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Expression<int>? cachedTokens,
     Expression<int>? durationMs,
     Expression<int>? messageOrder,
+    Expression<int>? updatedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1789,6 +1828,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       if (cachedTokens != null) 'cached_tokens': cachedTokens,
       if (durationMs != null) 'duration_ms': durationMs,
       if (messageOrder != null) 'message_order': messageOrder,
+      if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1815,6 +1855,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     Value<int?>? cachedTokens,
     Value<int?>? durationMs,
     Value<int>? messageOrder,
+    Value<int>? updatedAt,
     Value<int>? rowid,
   }) {
     return MessageRowsCompanion(
@@ -1840,6 +1881,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
       cachedTokens: cachedTokens ?? this.cachedTokens,
       durationMs: durationMs ?? this.durationMs,
       messageOrder: messageOrder ?? this.messageOrder,
+      updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1922,6 +1964,9 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
     if (messageOrder.present) {
       map['message_order'] = Variable<int>(messageOrder.value);
     }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1952,6 +1997,7 @@ class MessageRowsCompanion extends UpdateCompanion<MessageRow> {
           ..write('cachedTokens: $cachedTokens, ')
           ..write('durationMs: $durationMs, ')
           ..write('messageOrder: $messageOrder, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9508,6 +9554,959 @@ class PreferenceRowsCompanion extends UpdateCompanion<PreferenceRow> {
   }
 }
 
+class $SyncDirtyRowsTable extends SyncDirtyRows
+    with TableInfo<$SyncDirtyRowsTable, SyncDirtyRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncDirtyRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    check: () => scope.isIn(const ['conversation', 'entities', 'settings']),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _entityIdMeta = const VerificationMeta(
+    'entityId',
+  );
+  @override
+  late final GeneratedColumn<String> entityId = GeneratedColumn<String>(
+    'entity_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _firstDirtyAtMeta = const VerificationMeta(
+    'firstDirtyAt',
+  );
+  @override
+  late final GeneratedColumn<int> firstDirtyAt = GeneratedColumn<int>(
+    'first_dirty_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastDirtyAtMeta = const VerificationMeta(
+    'lastDirtyAt',
+  );
+  @override
+  late final GeneratedColumn<int> lastDirtyAt = GeneratedColumn<int>(
+    'last_dirty_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _quietMeta = const VerificationMeta('quiet');
+  @override
+  late final GeneratedColumn<bool> quiet = GeneratedColumn<bool>(
+    'quiet',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("quiet" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    scope,
+    entityId,
+    firstDirtyAt,
+    lastDirtyAt,
+    quiet,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_dirty_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncDirtyRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('entity_id')) {
+      context.handle(
+        _entityIdMeta,
+        entityId.isAcceptableOrUnknown(data['entity_id']!, _entityIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_entityIdMeta);
+    }
+    if (data.containsKey('first_dirty_at')) {
+      context.handle(
+        _firstDirtyAtMeta,
+        firstDirtyAt.isAcceptableOrUnknown(
+          data['first_dirty_at']!,
+          _firstDirtyAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_firstDirtyAtMeta);
+    }
+    if (data.containsKey('last_dirty_at')) {
+      context.handle(
+        _lastDirtyAtMeta,
+        lastDirtyAt.isAcceptableOrUnknown(
+          data['last_dirty_at']!,
+          _lastDirtyAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_lastDirtyAtMeta);
+    }
+    if (data.containsKey('quiet')) {
+      context.handle(
+        _quietMeta,
+        quiet.isAcceptableOrUnknown(data['quiet']!, _quietMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope, entityId};
+  @override
+  SyncDirtyRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncDirtyRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      entityId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}entity_id'],
+      )!,
+      firstDirtyAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}first_dirty_at'],
+      )!,
+      lastDirtyAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_dirty_at'],
+      )!,
+      quiet: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}quiet'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncDirtyRowsTable createAlias(String alias) {
+    return $SyncDirtyRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncDirtyRow extends DataClass implements Insertable<SyncDirtyRow> {
+  final String scope;
+  final String entityId;
+  final int firstDirtyAt;
+  final int lastDirtyAt;
+  final bool quiet;
+  const SyncDirtyRow({
+    required this.scope,
+    required this.entityId,
+    required this.firstDirtyAt,
+    required this.lastDirtyAt,
+    required this.quiet,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['entity_id'] = Variable<String>(entityId);
+    map['first_dirty_at'] = Variable<int>(firstDirtyAt);
+    map['last_dirty_at'] = Variable<int>(lastDirtyAt);
+    map['quiet'] = Variable<bool>(quiet);
+    return map;
+  }
+
+  SyncDirtyRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncDirtyRowsCompanion(
+      scope: Value(scope),
+      entityId: Value(entityId),
+      firstDirtyAt: Value(firstDirtyAt),
+      lastDirtyAt: Value(lastDirtyAt),
+      quiet: Value(quiet),
+    );
+  }
+
+  factory SyncDirtyRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncDirtyRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      entityId: serializer.fromJson<String>(json['entityId']),
+      firstDirtyAt: serializer.fromJson<int>(json['firstDirtyAt']),
+      lastDirtyAt: serializer.fromJson<int>(json['lastDirtyAt']),
+      quiet: serializer.fromJson<bool>(json['quiet']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'entityId': serializer.toJson<String>(entityId),
+      'firstDirtyAt': serializer.toJson<int>(firstDirtyAt),
+      'lastDirtyAt': serializer.toJson<int>(lastDirtyAt),
+      'quiet': serializer.toJson<bool>(quiet),
+    };
+  }
+
+  SyncDirtyRow copyWith({
+    String? scope,
+    String? entityId,
+    int? firstDirtyAt,
+    int? lastDirtyAt,
+    bool? quiet,
+  }) => SyncDirtyRow(
+    scope: scope ?? this.scope,
+    entityId: entityId ?? this.entityId,
+    firstDirtyAt: firstDirtyAt ?? this.firstDirtyAt,
+    lastDirtyAt: lastDirtyAt ?? this.lastDirtyAt,
+    quiet: quiet ?? this.quiet,
+  );
+  SyncDirtyRow copyWithCompanion(SyncDirtyRowsCompanion data) {
+    return SyncDirtyRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      entityId: data.entityId.present ? data.entityId.value : this.entityId,
+      firstDirtyAt: data.firstDirtyAt.present
+          ? data.firstDirtyAt.value
+          : this.firstDirtyAt,
+      lastDirtyAt: data.lastDirtyAt.present
+          ? data.lastDirtyAt.value
+          : this.lastDirtyAt,
+      quiet: data.quiet.present ? data.quiet.value : this.quiet,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncDirtyRow(')
+          ..write('scope: $scope, ')
+          ..write('entityId: $entityId, ')
+          ..write('firstDirtyAt: $firstDirtyAt, ')
+          ..write('lastDirtyAt: $lastDirtyAt, ')
+          ..write('quiet: $quiet')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(scope, entityId, firstDirtyAt, lastDirtyAt, quiet);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncDirtyRow &&
+          other.scope == this.scope &&
+          other.entityId == this.entityId &&
+          other.firstDirtyAt == this.firstDirtyAt &&
+          other.lastDirtyAt == this.lastDirtyAt &&
+          other.quiet == this.quiet);
+}
+
+class SyncDirtyRowsCompanion extends UpdateCompanion<SyncDirtyRow> {
+  final Value<String> scope;
+  final Value<String> entityId;
+  final Value<int> firstDirtyAt;
+  final Value<int> lastDirtyAt;
+  final Value<bool> quiet;
+  final Value<int> rowid;
+  const SyncDirtyRowsCompanion({
+    this.scope = const Value.absent(),
+    this.entityId = const Value.absent(),
+    this.firstDirtyAt = const Value.absent(),
+    this.lastDirtyAt = const Value.absent(),
+    this.quiet = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncDirtyRowsCompanion.insert({
+    required String scope,
+    required String entityId,
+    required int firstDirtyAt,
+    required int lastDirtyAt,
+    this.quiet = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       entityId = Value(entityId),
+       firstDirtyAt = Value(firstDirtyAt),
+       lastDirtyAt = Value(lastDirtyAt);
+  static Insertable<SyncDirtyRow> custom({
+    Expression<String>? scope,
+    Expression<String>? entityId,
+    Expression<int>? firstDirtyAt,
+    Expression<int>? lastDirtyAt,
+    Expression<bool>? quiet,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (entityId != null) 'entity_id': entityId,
+      if (firstDirtyAt != null) 'first_dirty_at': firstDirtyAt,
+      if (lastDirtyAt != null) 'last_dirty_at': lastDirtyAt,
+      if (quiet != null) 'quiet': quiet,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncDirtyRowsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? entityId,
+    Value<int>? firstDirtyAt,
+    Value<int>? lastDirtyAt,
+    Value<bool>? quiet,
+    Value<int>? rowid,
+  }) {
+    return SyncDirtyRowsCompanion(
+      scope: scope ?? this.scope,
+      entityId: entityId ?? this.entityId,
+      firstDirtyAt: firstDirtyAt ?? this.firstDirtyAt,
+      lastDirtyAt: lastDirtyAt ?? this.lastDirtyAt,
+      quiet: quiet ?? this.quiet,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (entityId.present) {
+      map['entity_id'] = Variable<String>(entityId.value);
+    }
+    if (firstDirtyAt.present) {
+      map['first_dirty_at'] = Variable<int>(firstDirtyAt.value);
+    }
+    if (lastDirtyAt.present) {
+      map['last_dirty_at'] = Variable<int>(lastDirtyAt.value);
+    }
+    if (quiet.present) {
+      map['quiet'] = Variable<bool>(quiet.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncDirtyRowsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('entityId: $entityId, ')
+          ..write('firstDirtyAt: $firstDirtyAt, ')
+          ..write('lastDirtyAt: $lastDirtyAt, ')
+          ..write('quiet: $quiet, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncTombstoneRowsTable extends SyncTombstoneRows
+    with TableInfo<$SyncTombstoneRowsTable, SyncTombstoneRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncTombstoneRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    check: () => kind.isNotValue(''),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _entityIdMeta = const VerificationMeta(
+    'entityId',
+  );
+  @override
+  late final GeneratedColumn<String> entityId = GeneratedColumn<String>(
+    'entity_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<int> deletedAt = GeneratedColumn<int>(
+    'deleted_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _uploadedMeta = const VerificationMeta(
+    'uploaded',
+  );
+  @override
+  late final GeneratedColumn<bool> uploaded = GeneratedColumn<bool>(
+    'uploaded',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("uploaded" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    kind,
+    entityId,
+    deletedAt,
+    deviceId,
+    uploaded,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_tombstone_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncTombstoneRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('entity_id')) {
+      context.handle(
+        _entityIdMeta,
+        entityId.isAcceptableOrUnknown(data['entity_id']!, _entityIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_entityIdMeta);
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deletedAtMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('uploaded')) {
+      context.handle(
+        _uploadedMeta,
+        uploaded.isAcceptableOrUnknown(data['uploaded']!, _uploadedMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {kind, entityId};
+  @override
+  SyncTombstoneRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncTombstoneRow(
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      entityId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}entity_id'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}deleted_at'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      uploaded: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}uploaded'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncTombstoneRowsTable createAlias(String alias) {
+    return $SyncTombstoneRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncTombstoneRow extends DataClass
+    implements Insertable<SyncTombstoneRow> {
+  final String kind;
+  final String entityId;
+  final int deletedAt;
+  final String deviceId;
+  final bool uploaded;
+  const SyncTombstoneRow({
+    required this.kind,
+    required this.entityId,
+    required this.deletedAt,
+    required this.deviceId,
+    required this.uploaded,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['kind'] = Variable<String>(kind);
+    map['entity_id'] = Variable<String>(entityId);
+    map['deleted_at'] = Variable<int>(deletedAt);
+    map['device_id'] = Variable<String>(deviceId);
+    map['uploaded'] = Variable<bool>(uploaded);
+    return map;
+  }
+
+  SyncTombstoneRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncTombstoneRowsCompanion(
+      kind: Value(kind),
+      entityId: Value(entityId),
+      deletedAt: Value(deletedAt),
+      deviceId: Value(deviceId),
+      uploaded: Value(uploaded),
+    );
+  }
+
+  factory SyncTombstoneRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncTombstoneRow(
+      kind: serializer.fromJson<String>(json['kind']),
+      entityId: serializer.fromJson<String>(json['entityId']),
+      deletedAt: serializer.fromJson<int>(json['deletedAt']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      uploaded: serializer.fromJson<bool>(json['uploaded']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'kind': serializer.toJson<String>(kind),
+      'entityId': serializer.toJson<String>(entityId),
+      'deletedAt': serializer.toJson<int>(deletedAt),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'uploaded': serializer.toJson<bool>(uploaded),
+    };
+  }
+
+  SyncTombstoneRow copyWith({
+    String? kind,
+    String? entityId,
+    int? deletedAt,
+    String? deviceId,
+    bool? uploaded,
+  }) => SyncTombstoneRow(
+    kind: kind ?? this.kind,
+    entityId: entityId ?? this.entityId,
+    deletedAt: deletedAt ?? this.deletedAt,
+    deviceId: deviceId ?? this.deviceId,
+    uploaded: uploaded ?? this.uploaded,
+  );
+  SyncTombstoneRow copyWithCompanion(SyncTombstoneRowsCompanion data) {
+    return SyncTombstoneRow(
+      kind: data.kind.present ? data.kind.value : this.kind,
+      entityId: data.entityId.present ? data.entityId.value : this.entityId,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      uploaded: data.uploaded.present ? data.uploaded.value : this.uploaded,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncTombstoneRow(')
+          ..write('kind: $kind, ')
+          ..write('entityId: $entityId, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('uploaded: $uploaded')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(kind, entityId, deletedAt, deviceId, uploaded);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncTombstoneRow &&
+          other.kind == this.kind &&
+          other.entityId == this.entityId &&
+          other.deletedAt == this.deletedAt &&
+          other.deviceId == this.deviceId &&
+          other.uploaded == this.uploaded);
+}
+
+class SyncTombstoneRowsCompanion extends UpdateCompanion<SyncTombstoneRow> {
+  final Value<String> kind;
+  final Value<String> entityId;
+  final Value<int> deletedAt;
+  final Value<String> deviceId;
+  final Value<bool> uploaded;
+  final Value<int> rowid;
+  const SyncTombstoneRowsCompanion({
+    this.kind = const Value.absent(),
+    this.entityId = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.uploaded = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncTombstoneRowsCompanion.insert({
+    required String kind,
+    required String entityId,
+    required int deletedAt,
+    required String deviceId,
+    this.uploaded = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : kind = Value(kind),
+       entityId = Value(entityId),
+       deletedAt = Value(deletedAt),
+       deviceId = Value(deviceId);
+  static Insertable<SyncTombstoneRow> custom({
+    Expression<String>? kind,
+    Expression<String>? entityId,
+    Expression<int>? deletedAt,
+    Expression<String>? deviceId,
+    Expression<bool>? uploaded,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (kind != null) 'kind': kind,
+      if (entityId != null) 'entity_id': entityId,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (deviceId != null) 'device_id': deviceId,
+      if (uploaded != null) 'uploaded': uploaded,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncTombstoneRowsCompanion copyWith({
+    Value<String>? kind,
+    Value<String>? entityId,
+    Value<int>? deletedAt,
+    Value<String>? deviceId,
+    Value<bool>? uploaded,
+    Value<int>? rowid,
+  }) {
+    return SyncTombstoneRowsCompanion(
+      kind: kind ?? this.kind,
+      entityId: entityId ?? this.entityId,
+      deletedAt: deletedAt ?? this.deletedAt,
+      deviceId: deviceId ?? this.deviceId,
+      uploaded: uploaded ?? this.uploaded,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (entityId.present) {
+      map['entity_id'] = Variable<String>(entityId.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<int>(deletedAt.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (uploaded.present) {
+      map['uploaded'] = Variable<bool>(uploaded.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncTombstoneRowsCompanion(')
+          ..write('kind: $kind, ')
+          ..write('entityId: $entityId, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('uploaded: $uploaded, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncMetaRowsTable extends SyncMetaRows
+    with TableInfo<$SyncMetaRowsTable, SyncMetaRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncMetaRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _keyMeta = const VerificationMeta('key');
+  @override
+  late final GeneratedColumn<String> key = GeneratedColumn<String>(
+    'key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _valueMeta = const VerificationMeta('value');
+  @override
+  late final GeneratedColumn<String> value = GeneratedColumn<String>(
+    'value',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [key, value];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_meta_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncMetaRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('key')) {
+      context.handle(
+        _keyMeta,
+        key.isAcceptableOrUnknown(data['key']!, _keyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_keyMeta);
+    }
+    if (data.containsKey('value')) {
+      context.handle(
+        _valueMeta,
+        value.isAcceptableOrUnknown(data['value']!, _valueMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_valueMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {key};
+  @override
+  SyncMetaRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncMetaRow(
+      key: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}key'],
+      )!,
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}value'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncMetaRowsTable createAlias(String alias) {
+    return $SyncMetaRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SyncMetaRow extends DataClass implements Insertable<SyncMetaRow> {
+  final String key;
+  final String value;
+  const SyncMetaRow({required this.key, required this.value});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['key'] = Variable<String>(key);
+    map['value'] = Variable<String>(value);
+    return map;
+  }
+
+  SyncMetaRowsCompanion toCompanion(bool nullToAbsent) {
+    return SyncMetaRowsCompanion(key: Value(key), value: Value(value));
+  }
+
+  factory SyncMetaRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncMetaRow(
+      key: serializer.fromJson<String>(json['key']),
+      value: serializer.fromJson<String>(json['value']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'key': serializer.toJson<String>(key),
+      'value': serializer.toJson<String>(value),
+    };
+  }
+
+  SyncMetaRow copyWith({String? key, String? value}) =>
+      SyncMetaRow(key: key ?? this.key, value: value ?? this.value);
+  SyncMetaRow copyWithCompanion(SyncMetaRowsCompanion data) {
+    return SyncMetaRow(
+      key: data.key.present ? data.key.value : this.key,
+      value: data.value.present ? data.value.value : this.value,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncMetaRow(')
+          ..write('key: $key, ')
+          ..write('value: $value')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(key, value);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncMetaRow &&
+          other.key == this.key &&
+          other.value == this.value);
+}
+
+class SyncMetaRowsCompanion extends UpdateCompanion<SyncMetaRow> {
+  final Value<String> key;
+  final Value<String> value;
+  final Value<int> rowid;
+  const SyncMetaRowsCompanion({
+    this.key = const Value.absent(),
+    this.value = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncMetaRowsCompanion.insert({
+    required String key,
+    required String value,
+    this.rowid = const Value.absent(),
+  }) : key = Value(key),
+       value = Value(value);
+  static Insertable<SyncMetaRow> custom({
+    Expression<String>? key,
+    Expression<String>? value,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (key != null) 'key': key,
+      if (value != null) 'value': value,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncMetaRowsCompanion copyWith({
+    Value<String>? key,
+    Value<String>? value,
+    Value<int>? rowid,
+  }) {
+    return SyncMetaRowsCompanion(
+      key: key ?? this.key,
+      value: value ?? this.value,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (key.present) {
+      map['key'] = Variable<String>(key.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<String>(value.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncMetaRowsCompanion(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -9554,6 +10553,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     this,
   );
   late final $PreferenceRowsTable preferenceRows = $PreferenceRowsTable(this);
+  late final $SyncDirtyRowsTable syncDirtyRows = $SyncDirtyRowsTable(this);
+  late final $SyncTombstoneRowsTable syncTombstoneRows =
+      $SyncTombstoneRowsTable(this);
+  late final $SyncMetaRowsTable syncMetaRows = $SyncMetaRowsTable(this);
   late final Index idxConversationsUpdatedAt = Index(
     'idx_conversations_updated_at',
     'CREATE INDEX idx_conversations_updated_at ON conversation_rows (updated_at DESC, id ASC)',
@@ -9565,6 +10568,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final Index idxMessagesConversationOrder = Index(
     'idx_messages_conversation_order',
     'CREATE INDEX idx_messages_conversation_order ON message_rows (conversation_id, message_order, id)',
+  );
+  late final Index idxMessagesUpdatedAt = Index(
+    'idx_messages_updated_at',
+    'CREATE INDEX idx_messages_updated_at ON message_rows (updated_at)',
   );
   late final Index idxMessagesConversationTimestamp = Index(
     'idx_messages_conversation_timestamp',
@@ -9627,9 +10634,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     instructionInjectionRows,
     assistantTagRows,
     preferenceRows,
+    syncDirtyRows,
+    syncTombstoneRows,
+    syncMetaRows,
     idxConversationsUpdatedAt,
     idxConversationsAssistant,
     idxMessagesConversationOrder,
+    idxMessagesUpdatedAt,
     idxMessagesConversationTimestamp,
     idxMessagesGroup,
     idxMessagePartsRevisionOrdinal,
@@ -10370,6 +11381,7 @@ typedef $$MessageRowsTableCreateCompanionBuilder =
       Value<int?> cachedTokens,
       Value<int?> durationMs,
       required int messageOrder,
+      Value<int> updatedAt,
       Value<int> rowid,
     });
 typedef $$MessageRowsTableUpdateCompanionBuilder =
@@ -10395,6 +11407,7 @@ typedef $$MessageRowsTableUpdateCompanionBuilder =
       Value<int?> cachedTokens,
       Value<int?> durationMs,
       Value<int> messageOrder,
+      Value<int> updatedAt,
       Value<int> rowid,
     });
 
@@ -10575,6 +11588,11 @@ class $$MessageRowsTableFilterComposer
 
   ColumnFilters<int> get messageOrder => $composableBuilder(
     column: $table.messageOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -10762,6 +11780,11 @@ class $$MessageRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$ConversationRowsTableOrderingComposer get conversationId {
     final $$ConversationRowsTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -10882,6 +11905,9 @@ class $$MessageRowsTableAnnotationComposer
     column: $table.messageOrder,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 
   $$ConversationRowsTableAnnotationComposer get conversationId {
     final $$ConversationRowsTableAnnotationComposer composer = $composerBuilder(
@@ -11012,6 +12038,7 @@ class $$MessageRowsTableTableManager
                 Value<int?> cachedTokens = const Value.absent(),
                 Value<int?> durationMs = const Value.absent(),
                 Value<int> messageOrder = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessageRowsCompanion(
                 id: id,
@@ -11035,6 +12062,7 @@ class $$MessageRowsTableTableManager
                 cachedTokens: cachedTokens,
                 durationMs: durationMs,
                 messageOrder: messageOrder,
+                updatedAt: updatedAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -11060,6 +12088,7 @@ class $$MessageRowsTableTableManager
                 Value<int?> cachedTokens = const Value.absent(),
                 Value<int?> durationMs = const Value.absent(),
                 required int messageOrder,
+                Value<int> updatedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => MessageRowsCompanion.insert(
                 id: id,
@@ -11083,6 +12112,7 @@ class $$MessageRowsTableTableManager
                 cachedTokens: cachedTokens,
                 durationMs: durationMs,
                 messageOrder: messageOrder,
+                updatedAt: updatedAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -16498,6 +17528,562 @@ typedef $$PreferenceRowsTableProcessedTableManager =
       PreferenceRow,
       PrefetchHooks Function()
     >;
+typedef $$SyncDirtyRowsTableCreateCompanionBuilder =
+    SyncDirtyRowsCompanion Function({
+      required String scope,
+      required String entityId,
+      required int firstDirtyAt,
+      required int lastDirtyAt,
+      Value<bool> quiet,
+      Value<int> rowid,
+    });
+typedef $$SyncDirtyRowsTableUpdateCompanionBuilder =
+    SyncDirtyRowsCompanion Function({
+      Value<String> scope,
+      Value<String> entityId,
+      Value<int> firstDirtyAt,
+      Value<int> lastDirtyAt,
+      Value<bool> quiet,
+      Value<int> rowid,
+    });
+
+class $$SyncDirtyRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncDirtyRowsTable> {
+  $$SyncDirtyRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get entityId => $composableBuilder(
+    column: $table.entityId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get firstDirtyAt => $composableBuilder(
+    column: $table.firstDirtyAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lastDirtyAt => $composableBuilder(
+    column: $table.lastDirtyAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get quiet => $composableBuilder(
+    column: $table.quiet,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncDirtyRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncDirtyRowsTable> {
+  $$SyncDirtyRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get entityId => $composableBuilder(
+    column: $table.entityId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get firstDirtyAt => $composableBuilder(
+    column: $table.firstDirtyAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastDirtyAt => $composableBuilder(
+    column: $table.lastDirtyAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get quiet => $composableBuilder(
+    column: $table.quiet,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncDirtyRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncDirtyRowsTable> {
+  $$SyncDirtyRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get entityId =>
+      $composableBuilder(column: $table.entityId, builder: (column) => column);
+
+  GeneratedColumn<int> get firstDirtyAt => $composableBuilder(
+    column: $table.firstDirtyAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get lastDirtyAt => $composableBuilder(
+    column: $table.lastDirtyAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get quiet =>
+      $composableBuilder(column: $table.quiet, builder: (column) => column);
+}
+
+class $$SyncDirtyRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SyncDirtyRowsTable,
+          SyncDirtyRow,
+          $$SyncDirtyRowsTableFilterComposer,
+          $$SyncDirtyRowsTableOrderingComposer,
+          $$SyncDirtyRowsTableAnnotationComposer,
+          $$SyncDirtyRowsTableCreateCompanionBuilder,
+          $$SyncDirtyRowsTableUpdateCompanionBuilder,
+          (
+            SyncDirtyRow,
+            BaseReferences<_$AppDatabase, $SyncDirtyRowsTable, SyncDirtyRow>,
+          ),
+          SyncDirtyRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncDirtyRowsTableTableManager(_$AppDatabase db, $SyncDirtyRowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncDirtyRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncDirtyRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncDirtyRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> entityId = const Value.absent(),
+                Value<int> firstDirtyAt = const Value.absent(),
+                Value<int> lastDirtyAt = const Value.absent(),
+                Value<bool> quiet = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncDirtyRowsCompanion(
+                scope: scope,
+                entityId: entityId,
+                firstDirtyAt: firstDirtyAt,
+                lastDirtyAt: lastDirtyAt,
+                quiet: quiet,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String entityId,
+                required int firstDirtyAt,
+                required int lastDirtyAt,
+                Value<bool> quiet = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncDirtyRowsCompanion.insert(
+                scope: scope,
+                entityId: entityId,
+                firstDirtyAt: firstDirtyAt,
+                lastDirtyAt: lastDirtyAt,
+                quiet: quiet,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncDirtyRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SyncDirtyRowsTable,
+      SyncDirtyRow,
+      $$SyncDirtyRowsTableFilterComposer,
+      $$SyncDirtyRowsTableOrderingComposer,
+      $$SyncDirtyRowsTableAnnotationComposer,
+      $$SyncDirtyRowsTableCreateCompanionBuilder,
+      $$SyncDirtyRowsTableUpdateCompanionBuilder,
+      (
+        SyncDirtyRow,
+        BaseReferences<_$AppDatabase, $SyncDirtyRowsTable, SyncDirtyRow>,
+      ),
+      SyncDirtyRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncTombstoneRowsTableCreateCompanionBuilder =
+    SyncTombstoneRowsCompanion Function({
+      required String kind,
+      required String entityId,
+      required int deletedAt,
+      required String deviceId,
+      Value<bool> uploaded,
+      Value<int> rowid,
+    });
+typedef $$SyncTombstoneRowsTableUpdateCompanionBuilder =
+    SyncTombstoneRowsCompanion Function({
+      Value<String> kind,
+      Value<String> entityId,
+      Value<int> deletedAt,
+      Value<String> deviceId,
+      Value<bool> uploaded,
+      Value<int> rowid,
+    });
+
+class $$SyncTombstoneRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncTombstoneRowsTable> {
+  $$SyncTombstoneRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get entityId => $composableBuilder(
+    column: $table.entityId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get uploaded => $composableBuilder(
+    column: $table.uploaded,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncTombstoneRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncTombstoneRowsTable> {
+  $$SyncTombstoneRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get entityId => $composableBuilder(
+    column: $table.entityId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get uploaded => $composableBuilder(
+    column: $table.uploaded,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncTombstoneRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncTombstoneRowsTable> {
+  $$SyncTombstoneRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get entityId =>
+      $composableBuilder(column: $table.entityId, builder: (column) => column);
+
+  GeneratedColumn<int> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<bool> get uploaded =>
+      $composableBuilder(column: $table.uploaded, builder: (column) => column);
+}
+
+class $$SyncTombstoneRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SyncTombstoneRowsTable,
+          SyncTombstoneRow,
+          $$SyncTombstoneRowsTableFilterComposer,
+          $$SyncTombstoneRowsTableOrderingComposer,
+          $$SyncTombstoneRowsTableAnnotationComposer,
+          $$SyncTombstoneRowsTableCreateCompanionBuilder,
+          $$SyncTombstoneRowsTableUpdateCompanionBuilder,
+          (
+            SyncTombstoneRow,
+            BaseReferences<
+              _$AppDatabase,
+              $SyncTombstoneRowsTable,
+              SyncTombstoneRow
+            >,
+          ),
+          SyncTombstoneRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncTombstoneRowsTableTableManager(
+    _$AppDatabase db,
+    $SyncTombstoneRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncTombstoneRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncTombstoneRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncTombstoneRowsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> kind = const Value.absent(),
+                Value<String> entityId = const Value.absent(),
+                Value<int> deletedAt = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<bool> uploaded = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncTombstoneRowsCompanion(
+                kind: kind,
+                entityId: entityId,
+                deletedAt: deletedAt,
+                deviceId: deviceId,
+                uploaded: uploaded,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String kind,
+                required String entityId,
+                required int deletedAt,
+                required String deviceId,
+                Value<bool> uploaded = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncTombstoneRowsCompanion.insert(
+                kind: kind,
+                entityId: entityId,
+                deletedAt: deletedAt,
+                deviceId: deviceId,
+                uploaded: uploaded,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncTombstoneRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SyncTombstoneRowsTable,
+      SyncTombstoneRow,
+      $$SyncTombstoneRowsTableFilterComposer,
+      $$SyncTombstoneRowsTableOrderingComposer,
+      $$SyncTombstoneRowsTableAnnotationComposer,
+      $$SyncTombstoneRowsTableCreateCompanionBuilder,
+      $$SyncTombstoneRowsTableUpdateCompanionBuilder,
+      (
+        SyncTombstoneRow,
+        BaseReferences<
+          _$AppDatabase,
+          $SyncTombstoneRowsTable,
+          SyncTombstoneRow
+        >,
+      ),
+      SyncTombstoneRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncMetaRowsTableCreateCompanionBuilder =
+    SyncMetaRowsCompanion Function({
+      required String key,
+      required String value,
+      Value<int> rowid,
+    });
+typedef $$SyncMetaRowsTableUpdateCompanionBuilder =
+    SyncMetaRowsCompanion Function({
+      Value<String> key,
+      Value<String> value,
+      Value<int> rowid,
+    });
+
+class $$SyncMetaRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $SyncMetaRowsTable> {
+  $$SyncMetaRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncMetaRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SyncMetaRowsTable> {
+  $$SyncMetaRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncMetaRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SyncMetaRowsTable> {
+  $$SyncMetaRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get key =>
+      $composableBuilder(column: $table.key, builder: (column) => column);
+
+  GeneratedColumn<String> get value =>
+      $composableBuilder(column: $table.value, builder: (column) => column);
+}
+
+class $$SyncMetaRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SyncMetaRowsTable,
+          SyncMetaRow,
+          $$SyncMetaRowsTableFilterComposer,
+          $$SyncMetaRowsTableOrderingComposer,
+          $$SyncMetaRowsTableAnnotationComposer,
+          $$SyncMetaRowsTableCreateCompanionBuilder,
+          $$SyncMetaRowsTableUpdateCompanionBuilder,
+          (
+            SyncMetaRow,
+            BaseReferences<_$AppDatabase, $SyncMetaRowsTable, SyncMetaRow>,
+          ),
+          SyncMetaRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncMetaRowsTableTableManager(_$AppDatabase db, $SyncMetaRowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncMetaRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncMetaRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncMetaRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> key = const Value.absent(),
+                Value<String> value = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncMetaRowsCompanion(key: key, value: value, rowid: rowid),
+          createCompanionCallback:
+              ({
+                required String key,
+                required String value,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncMetaRowsCompanion.insert(
+                key: key,
+                value: value,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncMetaRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SyncMetaRowsTable,
+      SyncMetaRow,
+      $$SyncMetaRowsTableFilterComposer,
+      $$SyncMetaRowsTableOrderingComposer,
+      $$SyncMetaRowsTableAnnotationComposer,
+      $$SyncMetaRowsTableCreateCompanionBuilder,
+      $$SyncMetaRowsTableUpdateCompanionBuilder,
+      (
+        SyncMetaRow,
+        BaseReferences<_$AppDatabase, $SyncMetaRowsTable, SyncMetaRow>,
+      ),
+      SyncMetaRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -16559,4 +18145,10 @@ class $AppDatabaseManager {
       $$AssistantTagRowsTableTableManager(_db, _db.assistantTagRows);
   $$PreferenceRowsTableTableManager get preferenceRows =>
       $$PreferenceRowsTableTableManager(_db, _db.preferenceRows);
+  $$SyncDirtyRowsTableTableManager get syncDirtyRows =>
+      $$SyncDirtyRowsTableTableManager(_db, _db.syncDirtyRows);
+  $$SyncTombstoneRowsTableTableManager get syncTombstoneRows =>
+      $$SyncTombstoneRowsTableTableManager(_db, _db.syncTombstoneRows);
+  $$SyncMetaRowsTableTableManager get syncMetaRows =>
+      $$SyncMetaRowsTableTableManager(_db, _db.syncMetaRows);
 }

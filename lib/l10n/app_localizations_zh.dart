@@ -5620,6 +5620,102 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get imageSettingsPageFooter =>
       '压缩在添加图片时进行，已保存或已发送的图片不受影响；压缩后图片以 JPEG 格式随消息发送。';
+
+  @override
+  String get syncPageTitle => '多端同步';
+
+  @override
+  String get syncStatusSectionTitle => '同步状态';
+
+  @override
+  String get syncStatusLabel => '当前状态';
+
+  @override
+  String get syncStatusIdle => '空闲';
+
+  @override
+  String get syncStatusSyncing => '同步中';
+
+  @override
+  String get syncStatusRetrying => '出错，稍后自动重试';
+
+  @override
+  String get syncStatusConfigError => '配置或凭据错误';
+
+  @override
+  String get syncStatusNeedsAppUpdate => '云端数据来自更新版本，请升级应用';
+
+  @override
+  String get syncStatusDisabled => '未启用';
+
+  @override
+  String get syncLastSyncAt => '上次同步';
+
+  @override
+  String get syncNeverSynced => '从未同步';
+
+  @override
+  String get syncClockSkewWarning => '本机时钟疑似异常，可能影响同步结果';
+
+  @override
+  String get syncSyncNow => '立即同步';
+
+  @override
+  String get syncSettingsSectionTitle => '同步设置';
+
+  @override
+  String get syncEnableTitle => '启用多端同步';
+
+  @override
+  String get syncBackendSectionTitle => '同步后端';
+
+  @override
+  String get syncBackendWebDav => 'WebDAV';
+
+  @override
+  String get syncBackendS3 => 'S3';
+
+  @override
+  String get syncBackendConfigHint => '服务器地址与凭据请在「备份」页配置';
+
+  @override
+  String get syncPollIntervalSectionTitle => '轮询间隔';
+
+  @override
+  String syncPollIntervalMinutes(int minutes) {
+    return '$minutes 分钟';
+  }
+
+  @override
+  String get syncNotConfiguredMessage => '请先在「备份」页配置 WebDAV 或 S3 服务器';
+
+  @override
+  String syncProbeFailedMessage(String error) {
+    return '连接云端失败：$error';
+  }
+
+  @override
+  String get syncEnableConfirmTitle => '启用多端同步';
+
+  @override
+  String syncEnableConfirmHasData(int revision, String time) {
+    return '云端已有同步数据（版本 $revision，最后写入 $time），启用后将与本机数据双向合并。数据以明文存储在你的服务器上。';
+  }
+
+  @override
+  String get syncEnableConfirmNoData => '将把本机全部数据上传到云端，数据以明文存储在你的服务器上。';
+
+  @override
+  String get syncEnableConfirmOk => '启用';
+
+  @override
+  String get syncCancel => '取消';
+
+  @override
+  String get syncUnknownTime => '未知';
+
+  @override
+  String get syncChecking => '正在检查云端数据…';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -11238,6 +11334,102 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   @override
   String get imageSettingsPageFooter =>
       '压缩在添加图片时进行，已保存或已发送的图片不受影响；压缩后图片以 JPEG 格式随消息发送。';
+
+  @override
+  String get syncPageTitle => '多端同步';
+
+  @override
+  String get syncStatusSectionTitle => '同步状态';
+
+  @override
+  String get syncStatusLabel => '当前状态';
+
+  @override
+  String get syncStatusIdle => '空闲';
+
+  @override
+  String get syncStatusSyncing => '同步中';
+
+  @override
+  String get syncStatusRetrying => '出错，稍后自动重试';
+
+  @override
+  String get syncStatusConfigError => '配置或凭据错误';
+
+  @override
+  String get syncStatusNeedsAppUpdate => '云端数据来自更新版本，请升级应用';
+
+  @override
+  String get syncStatusDisabled => '未启用';
+
+  @override
+  String get syncLastSyncAt => '上次同步';
+
+  @override
+  String get syncNeverSynced => '从未同步';
+
+  @override
+  String get syncClockSkewWarning => '本机时钟疑似异常，可能影响同步结果';
+
+  @override
+  String get syncSyncNow => '立即同步';
+
+  @override
+  String get syncSettingsSectionTitle => '同步设置';
+
+  @override
+  String get syncEnableTitle => '启用多端同步';
+
+  @override
+  String get syncBackendSectionTitle => '同步后端';
+
+  @override
+  String get syncBackendWebDav => 'WebDAV';
+
+  @override
+  String get syncBackendS3 => 'S3';
+
+  @override
+  String get syncBackendConfigHint => '服务器地址与凭据请在「备份」页配置';
+
+  @override
+  String get syncPollIntervalSectionTitle => '轮询间隔';
+
+  @override
+  String syncPollIntervalMinutes(int minutes) {
+    return '$minutes 分钟';
+  }
+
+  @override
+  String get syncNotConfiguredMessage => '请先在「备份」页配置 WebDAV 或 S3 服务器';
+
+  @override
+  String syncProbeFailedMessage(String error) {
+    return '连接云端失败：$error';
+  }
+
+  @override
+  String get syncEnableConfirmTitle => '启用多端同步';
+
+  @override
+  String syncEnableConfirmHasData(int revision, String time) {
+    return '云端已有同步数据（版本 $revision，最后写入 $time），启用后将与本机数据双向合并。数据以明文存储在你的服务器上。';
+  }
+
+  @override
+  String get syncEnableConfirmNoData => '将把本机全部数据上传到云端，数据以明文存储在你的服务器上。';
+
+  @override
+  String get syncEnableConfirmOk => '启用';
+
+  @override
+  String get syncCancel => '取消';
+
+  @override
+  String get syncUnknownTime => '未知';
+
+  @override
+  String get syncChecking => '正在检查云端数据…';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -16856,4 +17048,100 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get imageSettingsPageFooter =>
       '壓縮會在加入圖片時進行，已儲存或已傳送的圖片不受影響；壓縮後圖片會以 JPEG 格式隨訊息傳送。';
+
+  @override
+  String get syncPageTitle => '多端同步';
+
+  @override
+  String get syncStatusSectionTitle => '同步狀態';
+
+  @override
+  String get syncStatusLabel => '目前狀態';
+
+  @override
+  String get syncStatusIdle => '閒置';
+
+  @override
+  String get syncStatusSyncing => '同步中';
+
+  @override
+  String get syncStatusRetrying => '出錯，稍後自動重試';
+
+  @override
+  String get syncStatusConfigError => '設定或憑證錯誤';
+
+  @override
+  String get syncStatusNeedsAppUpdate => '雲端資料來自較新版本，請升級應用程式';
+
+  @override
+  String get syncStatusDisabled => '未啟用';
+
+  @override
+  String get syncLastSyncAt => '上次同步';
+
+  @override
+  String get syncNeverSynced => '從未同步';
+
+  @override
+  String get syncClockSkewWarning => '本機時鐘疑似異常，可能影響同步結果';
+
+  @override
+  String get syncSyncNow => '立即同步';
+
+  @override
+  String get syncSettingsSectionTitle => '同步設定';
+
+  @override
+  String get syncEnableTitle => '啟用多端同步';
+
+  @override
+  String get syncBackendSectionTitle => '同步後端';
+
+  @override
+  String get syncBackendWebDav => 'WebDAV';
+
+  @override
+  String get syncBackendS3 => 'S3';
+
+  @override
+  String get syncBackendConfigHint => '伺服器位址與憑證請在「備份」頁設定';
+
+  @override
+  String get syncPollIntervalSectionTitle => '輪詢間隔';
+
+  @override
+  String syncPollIntervalMinutes(int minutes) {
+    return '$minutes 分鐘';
+  }
+
+  @override
+  String get syncNotConfiguredMessage => '請先在「備份」頁設定 WebDAV 或 S3 伺服器';
+
+  @override
+  String syncProbeFailedMessage(String error) {
+    return '連線雲端失敗：$error';
+  }
+
+  @override
+  String get syncEnableConfirmTitle => '啟用多端同步';
+
+  @override
+  String syncEnableConfirmHasData(int revision, String time) {
+    return '雲端已有同步資料（版本 $revision，最後寫入 $time），啟用後將與本機資料雙向合併。資料會以明文儲存在你的伺服器上。';
+  }
+
+  @override
+  String get syncEnableConfirmNoData => '將把本機全部資料上傳到雲端，資料會以明文儲存在你的伺服器上。';
+
+  @override
+  String get syncEnableConfirmOk => '啟用';
+
+  @override
+  String get syncCancel => '取消';
+
+  @override
+  String get syncUnknownTime => '未知';
+
+  @override
+  String get syncChecking => '正在檢查雲端資料…';
 }

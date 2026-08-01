@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,12 +8,16 @@ import 'package:sqlite3/sqlite3.dart' as sqlite;
 
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
+import '../services/sync/sync_clock.dart';
+import '../services/sync/sync_state_store.dart';
+import '../services/sync/sync_write_observer.dart';
 import 'app_database.dart';
 import 'business_data.dart';
 import 'business_repository.dart';
 import 'chat_database_observer.dart';
 import 'generation_run.dart';
 import 'generation_run_commands.dart';
+import 'sync_schema_migration.dart';
 
 typedef ChatDatabaseSnapshotInfo = ({
   int schemaVersion,
@@ -111,6 +116,76 @@ class ChatDatabaseRepository {
   final ChatDatabaseObserver _observer;
   bool _messageSearchFtsReady = false;
 
+  /// The underlying database handle, exposed for the sync engine's raw-SQL
+  /// modules (state store, codec, merger). Not for general use.
+  AppDatabase get syncDatabase => _db;
+
+  /// Sync instrumentation. When set, committed local writes mark the affected
+  /// conversation dirty for the sync engine; deletions write tombstones.
+  SyncWriteObserver? syncObserver;
+  String syncDeviceId = 'local';
+  static const _syncSuppressKey = #kelivoSyncSuppress;
+
+  /// Runs [action] with sync dirty-marking suppressed. Used when applying
+  /// changes that came from the remote so they do not echo back into the
+  /// push queue. Zone-based, so concurrent unsuppressed writers are safe.
+  Future<T> runSyncSuppressed<T>(Future<T> Function() action) =>
+      runZoned(action, zoneValues: {_syncSuppressKey: true});
+
+  bool get _syncMarkingSuppressed => Zone.current[_syncSuppressKey] == true;
+
+  Future<void> _markConversationDirty(
+    String conversationId, {
+    bool quiet = false,
+  }) async {
+    if (_syncMarkingSuppressed) return;
+    await SyncStateStore.markDirtyInTransaction(
+      _db,
+      SyncScope.conversation,
+      conversationId,
+      quiet: quiet,
+    );
+    syncObserver?.onLocalChange(scope: SyncScope.conversation, quiet: quiet);
+  }
+
+  Future<void> _writeConversationTombstone(String conversationId) async {
+    if (_syncMarkingSuppressed) return;
+    await SyncStateStore.writeTombstoneInTransaction(
+      _db,
+      kind: SyncTombstoneKind.conversation,
+      entityId: conversationId,
+      deviceId: syncDeviceId,
+    );
+    syncObserver?.onLocalChange(
+      scope: SyncScope.conversation,
+      quiet: false,
+    );
+  }
+
+  Future<void> _writeMessageTombstones(
+    String conversationId,
+    Iterable<String> messageIds,
+  ) async {
+    if (_syncMarkingSuppressed) return;
+    for (final messageId in messageIds) {
+      await SyncStateStore.writeTombstoneInTransaction(
+        _db,
+        kind: SyncTombstoneKind.message,
+        entityId: SyncTombstoneKind.messageId(conversationId, messageId),
+        deviceId: syncDeviceId,
+      );
+    }
+  }
+
+  Future<String?> _conversationIdForMessage(String messageId) async {
+    final rows = await _db.customSelect(
+      'SELECT conversation_id FROM message_rows WHERE id = ?;',
+      variables: [Variable.withString(messageId)],
+    ).get();
+    if (rows.isEmpty) return null;
+    return rows.single.read<String>('conversation_id');
+  }
+
   static ChatDatabaseRepository open({
     File? file,
     ChatDatabaseObserver? observer,
@@ -202,24 +277,49 @@ class ChatDatabaseRepository {
   }
 
   static Future<bool> migrateInstalledDatabase(File file) async {
-    final database = sqlite.sqlite3.open(
+    final int schemaVersion;
+    final probe = sqlite.sqlite3.open(
       file.absolute.path,
       mode: sqlite.OpenMode.readOnly,
     );
-    late final int schemaVersion;
     try {
-      schemaVersion = database.userVersion;
-      if (schemaVersion != AppDatabase.currentSchemaVersion) {
-        throw StateError('database_schema_version');
+      schemaVersion = probe.userVersion;
+    } on sqlite.SqliteException {
+      throw StateError('database_corrupt');
+    } finally {
+      probe.close();
+    }
+
+    if (schemaVersion == AppDatabase.currentSchemaVersion) {
+      final database = sqlite.sqlite3.open(
+        file.absolute.path,
+        mode: sqlite.OpenMode.readOnly,
+      );
+      try {
+        _validateRawStructure(database);
+      } on sqlite.SqliteException {
+        throw StateError('database_corrupt');
+      } finally {
+        database.close();
       }
+      return false;
+    }
+
+    if (schemaVersion != SyncSchemaMigration.fromVersion) {
+      throw StateError('database_schema_version');
+    }
+
+    final database = sqlite.sqlite3.open(file.absolute.path);
+    try {
+      SyncSchemaMigration.migrateRaw(database);
+      database.execute('PRAGMA wal_checkpoint(TRUNCATE);');
       _validateRawStructure(database);
     } on sqlite.SqliteException {
       throw StateError('database_corrupt');
     } finally {
       database.close();
     }
-
-    return false;
+    return true;
   }
 
   static InstalledChatDatabaseInfo inspectInstalledDatabase(
@@ -409,6 +509,12 @@ class ChatDatabaseRepository {
     final database = sqlite.sqlite3.open(snapshotFile.absolute.path);
     late final ChatDatabaseSnapshotInfo initialInfo;
     try {
+      // Backup archives created before schema 2 carry schema-1 snapshots;
+      // upgrade them in place so the rest of the restore pipeline only ever
+      // sees the current schema.
+      if (database.userVersion == SyncSchemaMigration.fromVersion) {
+        SyncSchemaMigration.migrateRaw(database);
+      }
       initialInfo = _validateRawSnapshot(database);
       if (initialInfo.schemaVersion != AppDatabase.currentSchemaVersion) {
         throw StateError('database_schema_version');
@@ -560,6 +666,9 @@ class ChatDatabaseRepository {
       'instruction_injection_rows',
       'assistant_tag_rows',
       'preference_rows',
+      'sync_dirty_rows',
+      'sync_tombstone_rows',
+      'sync_meta_rows',
     };
     final tableRows = database.select(
       "SELECT name FROM sqlite_master WHERE type = 'table';",
@@ -624,6 +733,7 @@ class ChatDatabaseRepository {
         'cached_tokens',
         'duration_ms',
         'message_order',
+        'updated_at',
       ],
       'chat_storage_meta_rows': ['key', 'value'],
       'message_part_rows': [
@@ -698,6 +808,21 @@ class ChatDatabaseRepository {
       ],
       'assistant_tag_rows': ['id', 'sort_order', 'payload', 'updated_at'],
       'preference_rows': ['key', 'value', 'updated_at'],
+      'sync_dirty_rows': [
+        'scope',
+        'entity_id',
+        'first_dirty_at',
+        'last_dirty_at',
+        'quiet',
+      ],
+      'sync_tombstone_rows': [
+        'kind',
+        'entity_id',
+        'deleted_at',
+        'device_id',
+        'uploaded',
+      ],
+      'sync_meta_rows': ['key', 'value'],
     };
     for (final entry in expectedColumns.entries) {
       final tableInfo = database.select('PRAGMA table_info(${entry.key});');
@@ -1987,6 +2112,7 @@ class ChatDatabaseRepository {
   ) async {
     await _db.transaction(() async {
       await _rewriteMessageOrder(conversationId, messageIds);
+      await _markConversationDirty(conversationId);
     });
   }
 
@@ -2709,6 +2835,7 @@ class ChatDatabaseRepository {
           .into(_db.conversationRows)
           .insertOnConflictUpdate(_conversationCompanion(conversation));
       await _replaceMcpServers(conversation.id, conversation.mcpServerIds);
+      await _markConversationDirty(conversation.id);
     });
   }
 
@@ -2720,6 +2847,7 @@ class ChatDatabaseRepository {
           .into(_db.messageRows)
           .insertOnConflictUpdate(_messageCompanion(message, order));
       await _replaceMessageParts(message);
+      await _markConversationDirty(message.conversationId);
     });
   }
 
@@ -2989,6 +3117,7 @@ class ChatDatabaseRepository {
           .into(_db.messageRows)
           .insert(_messageCompanion(message, order), mode: InsertMode.insert);
       await _replaceMessageParts(message);
+      await _markConversationDirty(persisted.id);
       return persisted;
     });
   }
@@ -3242,6 +3371,7 @@ class ChatDatabaseRepository {
       await _db
           .into(_db.messageRows)
           .insert(_messageCompanion(message, order), mode: InsertMode.insert);
+      await _markConversationDirty(persisted.id);
     });
     return persisted;
   }
@@ -3294,6 +3424,7 @@ class ChatDatabaseRepository {
             .into(_db.messageRows)
             .insert(_messageCompanion(message, index), mode: InsertMode.insert);
       }
+      await _markConversationDirty(persisted.id);
     });
   }
 
@@ -3368,6 +3499,7 @@ class ChatDatabaseRepository {
       await (_db.update(_db.conversationRows)
             ..where((row) => row.id.equals(conversation.id)))
           .write(_conversationCompanion(conversation));
+      await _markConversationDirty(conversation.id);
       return (conversation: conversation, message: message);
     });
   }
@@ -3419,6 +3551,7 @@ class ChatDatabaseRepository {
       await (_db.update(_db.conversationRows)
             ..where((conversation) => conversation.id.equals(conversationId)))
           .write(_conversationCompanion(conversation));
+      await _markConversationDirty(conversationId);
       return conversation;
     });
   }
@@ -3444,6 +3577,9 @@ class ChatDatabaseRepository {
         geminiSignaturesByMessageId: geminiSignaturesByMessageId,
         freshParts: true,
       );
+      for (final conversation in conversations) {
+        await _markConversationDirty(conversation.id);
+      }
     });
   }
 
@@ -3530,6 +3666,12 @@ class ChatDatabaseRepository {
         transformBusiness,
         writeReceipt: true,
       );
+      for (final batch in conversationBatches) {
+        await _markConversationDirty(batch.conversation.id);
+      }
+      for (final conversationId in messagesToAppend.keys) {
+        await _markConversationDirty(conversationId);
+      }
     });
   }
 
@@ -3549,6 +3691,9 @@ class ChatDatabaseRepository {
         freshParts: true,
       );
       await _writeMigrationCompleteReceipt();
+      for (final conversation in conversations) {
+        await _markConversationDirty(conversation.id);
+      }
     });
   }
 
@@ -3558,6 +3703,17 @@ class ChatDatabaseRepository {
         'Snapshot database does not exist',
         snapshotFile.path,
       );
+    }
+
+    // Schema-1 snapshots from older backup archives are upgraded in place so
+    // the merge SQL below can rely on the current schema (updated_at etc.).
+    final rawSnapshot = sqlite.sqlite3.open(snapshotFile.absolute.path);
+    try {
+      if (rawSnapshot.userVersion == SyncSchemaMigration.fromVersion) {
+        SyncSchemaMigration.migrateRaw(rawSnapshot);
+      }
+    } finally {
+      rawSnapshot.close();
     }
 
     var attached = false;
@@ -3905,13 +4061,13 @@ class ChatDatabaseRepository {
         'total_tokens, is_streaming, reasoning_text, reasoning_start_at, '
         'reasoning_finished_at, translation, reasoning_segments_json, group_id, '
         'version, prompt_tokens, completion_tokens, cached_tokens, duration_ms, '
-        'message_order) '
+        'message_order, updated_at) '
         'SELECT ?, ?, role, content, timestamp, model_id, provider_id, '
         'total_tokens, 0, reasoning_text, reasoning_start_at, '
         'reasoning_finished_at, translation, reasoning_segments_json, '
         '?, version, '
         'prompt_tokens, completion_tokens, cached_tokens, duration_ms, '
-        'message_order FROM merge_source.message_rows WHERE id = ?;',
+        'message_order, updated_at FROM merge_source.message_rows WHERE id = ?;',
         [entry.value, targetId, targetGroupId, entry.key],
       );
       await _db.customStatement(
@@ -3941,6 +4097,7 @@ class ChatDatabaseRepository {
       "AND (content LIKE '%[image:%' OR content LIKE '%[file:%');",
       [targetId],
     );
+    await _markConversationDirty(targetId);
   }
 
   Future<void> _writeBackupData({
@@ -4016,6 +4173,7 @@ class ChatDatabaseRepository {
     await _db.transaction(() async {
       await _updateMessageShadow(message);
       await _replaceMessageParts(message);
+      await _markConversationDirty(message.conversationId);
     });
   }
 
@@ -4080,6 +4238,7 @@ class ChatDatabaseRepository {
           ? Value(cachedTokens)
           : const Value.absent(),
       durationMs: durationMs != null ? Value(durationMs) : const Value.absent(),
+      updatedAt: Value(SyncClock.nowMicros()),
     );
     return _db.transaction(() async {
       await (_db.update(
@@ -4087,6 +4246,7 @@ class ChatDatabaseRepository {
       )..where((t) => t.id.equals(messageId))).write(companion);
       final updated = await getMessage(messageId);
       if (updated == null) return null;
+      await _markConversationDirty(updated.conversationId);
       if (content == null && reasoningText == null) return updated;
       // getMessage resolves content/reasoning from parts, which still hold
       // the pre-update payloads; rebuild parts from the just-written values
@@ -4146,6 +4306,12 @@ class ChatDatabaseRepository {
           updatedAt: DateTime.now().toUtc(),
         );
       }
+      // Streaming checkpoints are quiet: recorded for the next push but not
+      // allowed to wake the debounced push loop mid-generation.
+      await _markConversationDirty(
+        message.conversationId,
+        quiet: message.isStreaming,
+      );
     });
   }
 
@@ -4164,13 +4330,17 @@ class ChatDatabaseRepository {
           );
       await _replaceMcpServers(conversation.id, conversation.mcpServerIds);
       await _rewriteMessageOrder(conversation.id, messageIds);
+      await _markConversationDirty(conversation.id);
     });
   }
 
   Future<void> deleteConversation(String id) async {
-    await (_db.delete(
-      _db.conversationRows,
-    )..where((t) => t.id.equals(id))).go();
+    await _db.transaction(() async {
+      await (_db.delete(
+        _db.conversationRows,
+      )..where((t) => t.id.equals(id))).go();
+      await _writeConversationTombstone(id);
+    });
   }
 
   Future<void> deleteMessage(String messageId) async {
@@ -4291,6 +4461,8 @@ class ChatDatabaseRepository {
       await (_db.update(_db.conversationRows)
             ..where((row) => row.id.equals(conversationId)))
           .write(_conversationCompanion(conversation));
+      await _writeMessageTombstones(conversationId, deletedIds);
+      await _markConversationDirty(conversationId);
       return (
         conversation: conversation,
         messages: deletedRows.map(_messageFromRow).toList(growable: false),
@@ -4300,7 +4472,13 @@ class ChatDatabaseRepository {
 
   Future<void> clearAllData() async {
     await _db.transaction(() async {
+      final rows = await _db
+          .customSelect('SELECT id FROM conversation_rows;')
+          .get();
       await _clearChatRows();
+      for (final row in rows) {
+        await _writeConversationTombstone(row.read<String>('id'));
+      }
     });
   }
 
@@ -4351,6 +4529,7 @@ class ChatDatabaseRepository {
       final message = await getMessage(messageId);
       if (message == null) throw StateError('tool_event_message_missing');
       await _replaceMessageParts(message, toolEvents: events);
+      await _markConversationDirty(message.conversationId);
     });
   }
 
@@ -4359,6 +4538,7 @@ class ChatDatabaseRepository {
       final message = await getMessage(messageId);
       if (message != null) {
         await _replaceMessageParts(message, toolEvents: const []);
+        await _markConversationDirty(message.conversationId);
       }
     });
   }
@@ -4394,6 +4574,10 @@ class ChatDatabaseRepository {
   ) async {
     await _db.transaction(() async {
       await _upsertGeminiThoughtSignature(messageId, signature);
+      final conversationId = await _conversationIdForMessage(messageId);
+      if (conversationId != null) {
+        await _markConversationDirty(conversationId);
+      }
     });
   }
 
@@ -4474,6 +4658,7 @@ class ChatDatabaseRepository {
               updatedAt: updatedAt,
             ),
           );
+      await _markConversationDirty(message.conversationId);
     });
   }
 
@@ -4614,12 +4799,18 @@ class ChatDatabaseRepository {
   }
 
   Future<void> deleteGeminiThoughtSignature(String messageId) async {
-    await (_db.delete(_db.providerArtifactRows)..where(
-          (row) =>
-              row.revisionId.equals(messageId) &
-              row.kind.equals('gemini_thought_signature'),
-        ))
-        .go();
+    await _db.transaction(() async {
+      await (_db.delete(_db.providerArtifactRows)..where(
+            (row) =>
+                row.revisionId.equals(messageId) &
+                row.kind.equals('gemini_thought_signature'),
+          ))
+          .go();
+      final conversationId = await _conversationIdForMessage(messageId);
+      if (conversationId != null) {
+        await _markConversationDirty(conversationId);
+      }
+    });
   }
 
   Future<List<String>> getActiveStreamingIds() async {
@@ -4962,6 +5153,7 @@ class ChatDatabaseRepository {
       cachedTokens: Value(message.cachedTokens),
       durationMs: Value(message.durationMs),
       messageOrder: messageOrder,
+      updatedAt: Value(SyncClock.nowMicros()),
     );
   }
 
@@ -4982,6 +5174,7 @@ class ChatDatabaseRepository {
       completionTokens: Value(message.completionTokens),
       cachedTokens: Value(message.cachedTokens),
       durationMs: Value(message.durationMs),
+      updatedAt: Value(SyncClock.nowMicros()),
     );
   }
 

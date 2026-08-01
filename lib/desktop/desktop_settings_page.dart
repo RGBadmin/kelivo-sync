@@ -53,6 +53,7 @@ import 'setting/quick_phrases_pane.dart';
 import 'setting/instruction_injection_pane.dart';
 import 'setting/world_book_pane.dart';
 import 'setting/backup_pane.dart';
+import 'setting/sync_pane.dart';
 import 'setting/hotkeys_pane.dart';
 import 'setting/network_proxy_pane.dart';
 import 'setting/about_pane.dart';
@@ -98,6 +99,7 @@ enum _SettingsMenuItem {
   tts,
   networkProxy,
   backup,
+  sync,
   hotkeys,
   stats,
   about,
@@ -214,6 +216,8 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                           return const DesktopBackupPane(
                             key: ValueKey('backup'),
                           );
+                        case _SettingsMenuItem.sync:
+                          return const DesktopSyncPane(key: ValueKey('sync'));
                         case _SettingsMenuItem.hotkeys:
                           return const DesktopHotkeysPane(
                             key: ValueKey('hotkeys'),
@@ -312,6 +316,11 @@ class _SettingsMenu extends StatelessWidget {
         _SettingsMenuItem.backup,
         lucide.Lucide.Database,
         l10n.settingsPageBackup,
+      ),
+      (
+        _SettingsMenuItem.sync,
+        lucide.Lucide.RefreshCw,
+        l10n.syncPageTitle,
       ),
       (
         _SettingsMenuItem.hotkeys,

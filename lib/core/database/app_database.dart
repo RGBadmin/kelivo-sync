@@ -6,6 +6,7 @@ import 'package:drift/native.dart';
 import 'package:sqlite3/common.dart' show AllowedArgumentCount;
 
 import '../../utils/app_directories.dart';
+import 'sync_schema_migration.dart';
 
 part 'app_database.g.dart';
 
@@ -64,6 +65,7 @@ class ConversationRows extends Table {
   name: 'idx_messages_conversation_order',
   columns: {#conversationId, #messageOrder, #id},
 )
+@TableIndex(name: 'idx_messages_updated_at', columns: {#updatedAt})
 @TableIndex(
   name: 'idx_messages_conversation_timestamp',
   columns: {#conversationId, #timestamp, #id},
@@ -122,6 +124,9 @@ class MessageRows extends Table {
       integer()
       // ignore: recursive_getters
       .check(messageOrder.isBiggerOrEqualValue(0))();
+  // Sync LWW timestamp (HLC micros). Declared last so the schema produced by
+  // "ALTER TABLE ... ADD COLUMN" on v1 databases matches a fresh v2 install.
+  IntColumn get updatedAt => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -533,6 +538,50 @@ class PreferenceRows extends Table {
   Set<Column<Object>> get primaryKey => {key};
 }
 
+/// Pending local changes awaiting upload to the sync remote. One row per
+/// sync object scope: a conversation, an entity kind, or the settings blob.
+class SyncDirtyRows extends Table {
+  TextColumn get scope => text().check(
+    // ignore: recursive_getters
+    scope.isIn(const ['conversation', 'entities', 'settings']),
+  )();
+  TextColumn get entityId => text()();
+  IntColumn get firstDirtyAt => integer()();
+  IntColumn get lastDirtyAt => integer()();
+  // A quiet row was produced only by streaming checkpoints; it must not
+  // trigger the debounced push, but is still included in the next push.
+  BoolColumn get quiet => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {scope, entityId};
+}
+
+/// Local deletions pending propagation, plus remote tombstones already
+/// applied locally (kept until pruned so deletions never resurrect).
+class SyncTombstoneRows extends Table {
+  TextColumn get kind => text().check(
+    // ignore: recursive_getters
+    kind.isNotValue(''),
+  )();
+  TextColumn get entityId => text()();
+  IntColumn get deletedAt => integer()();
+  TextColumn get deviceId => text()();
+  BoolColumn get uploaded => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {kind, entityId};
+}
+
+/// Sync engine key-value state: HLC high-water mark, last applied remote
+/// manifest and its ETag, capability probe results.
+class SyncMetaRows extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {key};
+}
+
 @DriftDatabase(
   tables: [
     ConversationRows,
@@ -559,6 +608,9 @@ class PreferenceRows extends Table {
     InstructionInjectionRows,
     AssistantTagRows,
     PreferenceRows,
+    SyncDirtyRows,
+    SyncTombstoneRows,
+    SyncMetaRows,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -566,9 +618,11 @@ class AppDatabase extends _$AppDatabase {
 
   static const databaseFileName = 'kelivo.db';
 
-  // Schema 1 is the first published SQLite contract. Every other non-zero
-  // version belongs to an unpublished or future format and is rejected.
-  static const currentSchemaVersion = 1;
+  // Schema 1 is the first published SQLite contract; schema 2 adds the sync
+  // metadata tables and message_rows.updated_at. Published versions upgrade
+  // stepwise; anything newer than the current version is rejected.
+  static const currentSchemaVersion = 2;
+  static const oldestUpgradableSchemaVersion = 1;
   // Keep SQLite's established 1000-page cadence explicit. At the usual 4 KiB
   // page size this starts a checkpoint around 4 MiB, but page size remains the
   // source of truth.
@@ -609,7 +663,8 @@ class AppDatabase extends _$AppDatabase {
       setup: (database) {
         final installedSchema = database.userVersion;
         if (installedSchema != 0 &&
-            installedSchema != AppDatabase.currentSchemaVersion) {
+            (installedSchema < AppDatabase.oldestUpgradableSchemaVersion ||
+                installedSchema > AppDatabase.currentSchemaVersion)) {
           throw StateError('database_schema_version');
         }
         // This callback is registered and invoked by SQLite on drift's worker
@@ -676,7 +731,14 @@ FROM probe;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onUpgrade: (_, _, _) async {
+    onUpgrade: (m, from, to) async {
+      if (from == SyncSchemaMigration.fromVersion &&
+          to == SyncSchemaMigration.toVersion) {
+        for (final statement in SyncSchemaMigration.statementsV1ToV2()) {
+          await customStatement(statement);
+        }
+        return;
+      }
       throw StateError('database_schema_version');
     },
     beforeOpen: (details) async {

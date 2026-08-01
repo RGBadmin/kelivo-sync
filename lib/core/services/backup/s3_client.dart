@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
 import '../../models/backup.dart';
+import '../sync/sync_remote_store.dart';
 
 class S3BackupClient {
   const S3BackupClient();
@@ -395,10 +396,11 @@ class S3BackupClient {
     // the client (by draining the stream).
   }
 
-  static Future<void> _sendSignedDownloadToFile(
+  static Future<bool> _sendSignedDownloadToFile(
     S3Config cfg, {
     required Uri uri,
     required File destination,
+    bool missingOk = false,
   }) async {
     final now = DateTime.now().toUtc();
     final amzDate = _amzDate(now);
@@ -455,11 +457,13 @@ class S3BackupClient {
       final streamed = await client.send(req);
       if (streamed.statusCode != 200) {
         final res = await http.Response.fromStream(streamed);
+        if (missingOk && _isMissingObjectResponse(res)) return false;
         throw Exception('S3 download failed: ${_extractErrorMessage(res)}');
       }
       await destination.parent.create(recursive: true);
       final sink = destination.openWrite();
       await streamed.stream.pipe(sink);
+      return true;
     } finally {
       client.close();
     }
@@ -891,6 +895,116 @@ class S3BackupClient {
       throw Exception('S3 delete failed: ${_extractErrorMessage(res)}');
     }
     await _removeManifestItem(cfg, key: key);
+  }
+
+  // ===== Sync object APIs =====
+  // Raw conditional reads/writes for the multi-device sync engine. Unlike
+  // the backup APIs above they never touch the backup manifest, and the
+  // caller passes complete keys (the sync engine owns its own prefix).
+
+  Future<RemoteGetResult> getSyncObject(
+    S3Config cfg, {
+    required String key,
+    String? ifNoneMatch,
+  }) async {
+    _validateConfigBasics(cfg);
+    final res = await _sendSigned(
+      cfg,
+      method: 'GET',
+      uri: _buildObjectUri(cfg, key),
+      headers: {if (ifNoneMatch != null) 'if-none-match': ifNoneMatch},
+    );
+    if (res.statusCode == 304) return const RemoteObjectUnchanged();
+    if (_isMissingObjectResponse(res)) return const RemoteObjectMissing();
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      throw RemoteAuthException(_extractErrorMessage(res));
+    }
+    if (res.statusCode != 200) {
+      throw Exception('S3 get failed: ${_extractErrorMessage(res)}');
+    }
+    return RemoteObjectData(res.bodyBytes, res.headers['etag']);
+  }
+
+  Future<String?> putSyncObject(
+    S3Config cfg, {
+    required String key,
+    required List<int> bytes,
+    String contentType = 'application/json; charset=utf-8',
+    String? ifMatch,
+    bool ifAbsent = false,
+  }) async {
+    _validateConfigBasics(cfg);
+    final res = await _sendSigned(
+      cfg,
+      method: 'PUT',
+      uri: _buildObjectUri(cfg, key),
+      headers: {
+        'content-type': contentType,
+        if (ifMatch != null) 'if-match': ifMatch,
+        if (ifAbsent) 'if-none-match': '*',
+      },
+      bodyBytes: bytes,
+    );
+    // 412 = PreconditionFailed; 409 = ConditionalRequestConflict, AWS's
+    // answer when two conditional writers race.
+    if (res.statusCode == 412 || res.statusCode == 409) {
+      throw RemotePreconditionFailedException(key);
+    }
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      throw RemoteAuthException(_extractErrorMessage(res));
+    }
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('S3 put failed: ${_extractErrorMessage(res)}');
+    }
+    return res.headers['etag'];
+  }
+
+  Future<void> putSyncFile(
+    S3Config cfg, {
+    required String key,
+    required File file,
+    String contentType = 'application/octet-stream',
+  }) async {
+    _validateConfigBasics(cfg);
+    final streamed = await _sendSignedStreamedFile(
+      cfg,
+      method: 'PUT',
+      uri: _buildObjectUri(cfg, key),
+      bodyFile: file,
+      headers: {'content-type': contentType},
+    );
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('S3 upload failed: ${_extractErrorMessage(res)}');
+    }
+  }
+
+  /// Returns false when the object does not exist.
+  Future<bool> downloadSyncObjectToFile(
+    S3Config cfg, {
+    required String key,
+    required File destination,
+  }) async {
+    _validateConfigBasics(cfg);
+    return _sendSignedDownloadToFile(
+      cfg,
+      uri: _buildObjectUri(cfg, key),
+      destination: destination,
+      missingOk: true,
+    );
+  }
+
+  Future<void> deleteSyncObject(S3Config cfg, {required String key}) async {
+    _validateConfigBasics(cfg);
+    final res = await _sendSigned(
+      cfg,
+      method: 'DELETE',
+      uri: _buildObjectUri(cfg, key),
+    );
+    if ((res.statusCode < 200 || res.statusCode >= 300) &&
+        !_isMissingObjectResponse(res)) {
+      throw Exception('S3 delete failed: ${_extractErrorMessage(res)}');
+    }
   }
 
   Future<List<BackupFileItem>> listObjects(S3Config cfg) async {

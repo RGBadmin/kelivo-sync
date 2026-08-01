@@ -26,6 +26,10 @@ final class BusinessKeyRegistry {
     'desktop_hotkeys_enabled_v1',
     'display_chat_font_scale_v1',
     'flutter_log_enabled_v1',
+    // Multi-device sync is enabled per device; its switches never sync.
+    'sync_enabled_v1',
+    'sync_backend_v1',
+    'sync_poll_interval_minutes_v1',
   };
 
   static const discardedKeys = <String>{

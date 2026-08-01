@@ -16,9 +16,9 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  test('frozen schema includes and matches current schema 1', () async {
-    expect(AppDatabase.currentSchemaVersion, 1);
-    expect(GeneratedHelper.versions, [AppDatabase.currentSchemaVersion]);
+  test('frozen schema includes and matches current schema 2', () async {
+    expect(AppDatabase.currentSchemaVersion, 2);
+    expect(GeneratedHelper.versions, [1, AppDatabase.currentSchemaVersion]);
     final database = AppDatabase(NativeDatabase.memory());
     try {
       await database.customSelect('SELECT 1;').getSingle();
@@ -32,7 +32,21 @@ void main() {
     }
   });
 
-  test('schema 1 creates every business and asset persistence table', () async {
+  test('schema 1 upgrades in place to a structurally exact schema 2', () async {
+    final connection = await verifier.startAt(1);
+    final database = AppDatabase(connection);
+    try {
+      await verifier.migrateAndValidate(
+        database,
+        AppDatabase.currentSchemaVersion,
+        options: const ValidationOptions(validateDropped: true),
+      );
+    } finally {
+      await database.close();
+    }
+  });
+
+  test('schema 2 creates every business, asset and sync table', () async {
     final database = AppDatabase(NativeDatabase.memory());
     try {
       final rows = await database
@@ -60,6 +74,9 @@ void main() {
           'asset_gc_rows',
           'gc_audit_rows',
           'asset_reference_dirty_rows',
+          'sync_dirty_rows',
+          'sync_tombstone_rows',
+          'sync_meta_rows',
         }),
       );
     } finally {
@@ -71,7 +88,7 @@ void main() {
     final database = AppDatabase(
       NativeDatabase.memory(
         setup: (rawDatabase) {
-          rawDatabase.userVersion = 2;
+          rawDatabase.userVersion = 3;
         },
       ),
     );

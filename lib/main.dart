@@ -34,6 +34,7 @@ import 'core/providers/backup_provider.dart';
 import 'core/providers/s3_backup_provider.dart';
 import 'core/providers/backup_reminder_provider.dart';
 import 'core/providers/hotkey_provider.dart';
+import 'core/providers/sync_provider.dart';
 import 'core/database/database_installation_gate.dart';
 import 'core/database/app_database.dart';
 import 'core/database/business_migration_engine.dart';
@@ -128,6 +129,7 @@ Future<void> main() async {
       await SandboxPathResolver.init();
       ChatDatabaseLease? processDatabaseLease;
       BusinessPreferences? businessPreferences;
+      DatabaseInstallationReceipt? installationReceipt;
       var recoveryAttempted = false;
       while (true) {
         try {
@@ -141,7 +143,7 @@ Future<void> main() async {
             );
             return;
           }
-          await DatabaseInstallationGate.ensureReady(
+          installationReceipt = await DatabaseInstallationGate.ensureReady(
             appDataDirectory: appDataDirectory,
             allowDatabaseIdentityChange:
                 restoreOutcome?.selectedComponents.contains(
@@ -213,6 +215,7 @@ Future<void> main() async {
         MyApp(
           databaseLease: processDatabaseLease,
           businessPreferences: businessPreferences,
+          installationId: installationReceipt.installationId,
           restoreOutcome: restoreOutcome?.state,
         ),
       );
@@ -511,11 +514,13 @@ class MyApp extends StatelessWidget {
     super.key,
     required this.databaseLease,
     required this.businessPreferences,
+    required this.installationId,
     this.restoreOutcome,
   });
 
   final ChatDatabaseLease databaseLease;
   final BusinessPreferences businessPreferences;
+  final String installationId;
   final RestoreReceiptState? restoreOutcome;
 
   @override
@@ -600,6 +605,31 @@ class MyApp extends StatelessWidget {
             businessPreferences: businessPreferences,
             initialConfig: ctx.read<SettingsProvider>().s3Config,
           ),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (ctx) {
+            final sync = SyncService(
+              chatRepository: databaseLease.chatRepository,
+              businessRepository: databaseLease.businessRepository,
+              businessPreferences: businessPreferences,
+              chatService: ctx.read<ChatService>(),
+              installationId: installationId,
+            );
+            sync.onBusinessDataApplied = () {
+              // Best-effort live refresh of list-backed providers; other
+              // settings pick up merged values on next read or restart.
+              unawaited(ctx.read<QuickPhraseProvider>().loadAll());
+              unawaited(ctx.read<WorldBookProvider>().loadAll());
+              unawaited(ctx.read<MemoryProvider>().loadAll());
+              unawaited(ctx.read<InstructionInjectionProvider>().loadAll());
+            };
+            AppExitFlush.register(sync.flushPendingPush);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              unawaited(sync.start());
+            });
+            return sync;
+          },
         ),
       ],
       child: Builder(
