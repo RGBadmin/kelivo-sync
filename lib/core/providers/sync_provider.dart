@@ -189,7 +189,9 @@ class SyncService extends ChangeNotifier
       final engine = await _ensureEngine();
       final store = _buildStore();
       if (store == null) return;
-      await engine.pushOnce(store);
+      if (await engine.hasPendingLocalChanges()) {
+        await engine.syncOnce(store);
+      }
     } catch (_) {
       // Exit flush is best effort; the dirty queue survives in SQLite.
     }
@@ -236,7 +238,7 @@ class SyncService extends ChangeNotifier
       // Create kelivo_sync/ and its subdirectories up front; WebDAV servers
       // answer 409 on writes into a missing collection.
       await store.ensureReady();
-      final report = await engine.fullSync(store);
+      final report = await engine.syncOnce(store);
       await _applyUiRefresh(report);
       _consecutiveFailures = 0;
       _lastError = null;
@@ -421,28 +423,16 @@ class SyncService extends ChangeNotifier
     _setPhase(SyncPhase.syncing);
     try {
       final engine = await _ensureEngine();
-      final SyncPullReport report;
-      if (full) {
-        report = await engine.fullSync(store);
-      } else {
-        // One manifest fetch per round: pushOnce already pulls unapplied
-        // remote changes before writing, so a dirty round needs no separate
-        // pull; a clean round only pulls.
-        final dirty = await engine.hasPendingLocalChanges();
-        if (dirty) {
-          report = (await engine.pushOnce(store)).pulled;
-        } else {
-          report = await engine.pullOnce(store);
-        }
-      }
+      // One round = one manifest fetch + mirror in the winning direction.
+      final report = await engine.syncOnce(store);
       await _applyUiRefresh(report);
       _consecutiveFailures = 0;
       _lastError = null;
       _lastSyncAt = DateTime.now();
       _setPhase(SyncPhase.idle);
-      if (report.deferredActiveConversations) {
-        _scheduleRetry(const Duration(seconds: 30));
-      }
+      // Conversations skipped because a generation was still running are
+      // NOT retried on a timer: the generation's own completion write is a
+      // loud change event that schedules the next push. Event-driven only.
     } on SyncSchemaTooNewException {
       _lastError = 'sync_schema_too_new';
       _setPhase(SyncPhase.needsAppUpdate);

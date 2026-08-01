@@ -82,7 +82,16 @@ final class _Device {
           variables: [Variable.withString(key)],
         )
         .get();
-    return rows.isEmpty ? null : jsonDecode(rows.single.data['value'] as String);
+    return rows.isEmpty
+        ? null
+        : jsonDecode(rows.single.data['value'] as String);
+  }
+
+  Future<List<String>> assistantIds() async {
+    final rows = await database
+        .customSelect('SELECT id FROM assistant_rows ORDER BY id;')
+        .get();
+    return [for (final row in rows) row.data['id'] as String];
   }
 }
 
@@ -163,33 +172,32 @@ void main() {
     }
   }
 
-  test('basic push then pull replicates a conversation', () async {
+  test('push then initial pull replicates the conversation', () async {
     await seedConversation(deviceA, 'conv-1');
-    await deviceA.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
     expect(remote.objects.containsKey('manifest.json'), isTrue);
     expect(remote.objects.containsKey('conversations/conv-1.json'), isTrue);
 
-    await deviceB.engine.fullSync(remote);
+    await deviceB.engine.syncOnce(remote);
     expect(await deviceB.conversationIds(), ['conv-1']);
     expect(await deviceB.conversationTitle('conv-1'), 'hello');
-    final messages = await deviceB.messages('conv-1');
-    expect(messages, hasLength(2));
-    expect(messages.first['content'], 'message 0');
+    expect(await deviceB.messages('conv-1'), hasLength(2));
 
-    // Convergence: both devices export byte-identical portable objects.
     final exportA = await deviceA.codec.exportConversation('conv-1');
     final exportB = await deviceB.codec.exportConversation('conv-1');
     expect(exportB!.sha256Hex, exportA!.sha256Hex);
   });
 
-  test('diverged edits merge without losing either side', () async {
+  test('diverged edits: the side with the newest change wins wholesale',
+      () async {
     await seedConversation(deviceA, 'conv-1');
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
+    await deviceB.engine.syncOnce(remote);
 
-    // A renames; B appends a message. Both offline edits.
-    final conversation = Conversation(id: 'conv-1', title: 'renamed by A');
-    await deviceA.chat.putConversation(conversation);
+    // A renames first, then B appends a message (newer change).
+    await deviceA.chat.putConversation(
+      Conversation(id: 'conv-1', title: 'renamed by A'),
+    );
     await deviceB.chat.putMessage(
       ChatMessage(
         id: 'conv-1-m9',
@@ -200,12 +208,13 @@ void main() {
       ),
     );
 
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
-    await deviceA.engine.fullSync(remote);
+    // B pushes its (newer) state; A's older pending rename is then
+    // discarded when the cloud wins on A.
+    await deviceB.engine.syncOnce(remote);
+    await deviceA.engine.syncOnce(remote);
 
-    expect(await deviceA.conversationTitle('conv-1'), 'renamed by A');
-    expect(await deviceB.conversationTitle('conv-1'), 'renamed by A');
+    expect(await deviceA.conversationTitle('conv-1'), 'hello');
+    expect(await deviceB.conversationTitle('conv-1'), 'hello');
     expect(await deviceA.messages('conv-1'), hasLength(3));
     expect(await deviceB.messages('conv-1'), hasLength(3));
 
@@ -214,28 +223,50 @@ void main() {
     expect(exportB!.sha256Hex, exportA!.sha256Hex);
   });
 
-  test('conversation deletion propagates through tombstones', () async {
+  test('offline edits newer than the cloud overwrite the cloud', () async {
     await seedConversation(deviceA, 'conv-1');
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
+    await deviceB.engine.syncOnce(remote);
+
+    // A pushes a rename; afterwards B (offline until now) makes a NEWER
+    // edit and only then syncs: B's state must win.
+    await deviceA.chat.putConversation(
+      Conversation(id: 'conv-1', title: 'renamed by A'),
+    );
+    await deviceA.engine.syncOnce(remote);
+
+    await deviceB.chat.putConversation(
+      Conversation(id: 'conv-1', title: 'renamed by B later'),
+    );
+    await deviceB.engine.syncOnce(remote);
+    await deviceA.engine.syncOnce(remote);
+
+    expect(await deviceA.conversationTitle('conv-1'), 'renamed by B later');
+    expect(await deviceB.conversationTitle('conv-1'), 'renamed by B later');
+  });
+
+  test('conversation deletion propagates', () async {
+    await seedConversation(deviceA, 'conv-1');
+    await deviceA.engine.syncOnce(remote);
+    await deviceB.engine.syncOnce(remote);
     expect(await deviceB.conversationIds(), ['conv-1']);
 
     await deviceA.chat.deleteConversation('conv-1');
-    await deviceA.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
     expect(remote.objects.containsKey('conversations/conv-1.json'), isFalse);
 
-    await deviceB.engine.fullSync(remote);
+    await deviceB.engine.syncOnce(remote);
     expect(await deviceB.conversationIds(), isEmpty);
   });
 
   test('message deletion propagates and reorders the survivors', () async {
     await seedConversation(deviceA, 'conv-1', messageCount: 3);
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
+    await deviceB.engine.syncOnce(remote);
 
     await deviceA.chat.deleteMessage('conv-1-m1');
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
+    await deviceB.engine.syncOnce(remote);
 
     final messages = await deviceB.messages('conv-1');
     expect(messages, hasLength(2));
@@ -243,69 +274,54 @@ void main() {
     expect(messages.map((m) => m['message_order']), [0, 1]);
   });
 
-  test('a later edit wins over a concurrent deletion', () async {
+  test('a fresh device with seeded defaults never pollutes the cloud',
+      () async {
+    // Device A is the established install with real data.
     await seedConversation(deviceA, 'conv-1');
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
-
-    await deviceA.chat.deleteConversation('conv-1');
-    // B edits AFTER the deletion instant.
-    await deviceB.chat.updateMessageFields(
-      'conv-1-m0',
-      content: 'edited on B after deletion',
-    );
-
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
-    // B keeps its conversation (edit wins) and pushes it back.
-    expect(await deviceB.conversationIds(), ['conv-1']);
-    await deviceA.engine.fullSync(remote);
-    expect(await deviceA.conversationIds(), ['conv-1']);
-    final messages = await deviceA.messages('conv-1');
-    expect(
-      messages.map((m) => m['content']),
-      contains('edited on B after deletion'),
-    );
-  });
-
-  test('settings sync with per-key LWW', () async {
-    await deviceA.business.setPreference('theme_mode_v1', 'dark');
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
-    expect(await deviceB.preference('theme_mode_v1'), 'dark');
-
-    await deviceB.business.setPreference('theme_mode_v1', 'light');
-    await deviceB.engine.fullSync(remote);
-    await deviceA.engine.fullSync(remote);
-    expect(await deviceA.preference('theme_mode_v1'), 'light');
-  });
-
-  test('entity deletion propagates through tombstones', () async {
     await deviceA.business.upsertEntity(
       BusinessEntityKind.assistant,
       const BusinessEntityValue(
-        id: 'assistant-1',
+        id: 'real-assistant',
         sortOrder: 0,
-        payload: '{"id":"assistant-1","name":"Test"}',
+        payload: '{"id":"real-assistant","name":"Real"}',
       ),
     );
-    await deviceA.engine.fullSync(remote);
-    await deviceB.engine.fullSync(remote);
-    final rowsOnB = await deviceB.database
-        .customSelect('SELECT id FROM assistant_rows;')
-        .get();
-    expect(rowsOnB, hasLength(1));
+    await deviceA.engine.syncOnce(remote);
 
-    await deviceB.business.deleteEntity(
+    // Device B is a fresh install that seeded defaults BEFORE enabling
+    // sync (this is what every new install does on first launch).
+    await deviceB.business.upsertEntity(
       BusinessEntityKind.assistant,
-      'assistant-1',
+      const BusinessEntityValue(
+        id: 'default-assistant',
+        sortOrder: 0,
+        payload: '{"id":"default-assistant","name":"Default"}',
+      ),
     );
-    await deviceB.engine.fullSync(remote);
-    await deviceA.engine.fullSync(remote);
-    final rowsOnA = await deviceA.database
-        .customSelect('SELECT id FROM assistant_rows;')
-        .get();
-    expect(rowsOnA, isEmpty);
+    await seedConversation(deviceB, 'default-conv');
+
+    // First sync: the populated cloud is authoritative regardless of the
+    // fresh device's newer timestamps.
+    await deviceB.engine.syncOnce(remote);
+    expect(await deviceB.assistantIds(), ['real-assistant']);
+    expect(await deviceB.conversationIds(), ['conv-1']);
+
+    // And the defaults never reached the cloud.
+    await deviceA.engine.syncOnce(remote);
+    expect(await deviceA.assistantIds(), ['real-assistant']);
+    expect(await deviceA.conversationIds(), ['conv-1']);
+  });
+
+  test('settings changes flow to the other device', () async {
+    await deviceA.business.setPreference('theme_mode_v1', 'dark');
+    await deviceA.engine.syncOnce(remote);
+    await deviceB.engine.syncOnce(remote);
+    expect(await deviceB.preference('theme_mode_v1'), 'dark');
+
+    await deviceB.business.setPreference('theme_mode_v1', 'light');
+    await deviceB.engine.syncOnce(remote);
+    await deviceA.engine.syncOnce(remote);
+    expect(await deviceA.preference('theme_mode_v1'), 'light');
   });
 
   test('attachments travel by content hash and are localized', () async {
@@ -326,13 +342,13 @@ void main() {
         timestamp: DateTime.fromMillisecondsSinceEpoch(1000000),
       ),
     );
-    await deviceA.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
     expect(
       remote.objects.keys.where((key) => key.startsWith('assets/')),
       hasLength(1),
     );
 
-    await deviceB.engine.fullSync(remote);
+    await deviceB.engine.syncOnce(remote);
     final messages = await deviceB.messages('conv-1');
     final content = messages.single['content'] as String;
     final match = RegExp(r'\[image:([^\]]+)\]').firstMatch(content)!;
@@ -343,55 +359,53 @@ void main() {
   });
 
   test('conditional manifest write conflicts retry and recover', () async {
+    await deviceB.business.setPreference('seed_v1', 'x');
+    await deviceB.engine.syncOnce(remote);
+    await deviceA.engine.syncOnce(remote);
+
     await seedConversation(deviceA, 'conv-1');
     var hijacked = false;
     remote.onBeforePut = (path) {
       if (path == 'manifest.json' && !hijacked) {
         hijacked = true;
-        // Simulate a concurrent writer bumping the manifest ETag.
-        remote.etags['manifest.json'] = 'hijacked';
-        remote.objects.putIfAbsent(
-          'manifest.json',
-          () => remote.objects['manifest.json'] ??
-              // A minimal valid empty manifest so the retry can decode it.
-              (throw StateError('manifest missing during hijack')),
-        );
-      }
-    };
-
-    // First push: manifest does not exist yet; ifAbsent write hits the
-    // hijacked etag only when a manifest exists, so seed one via a full sync
-    // from another device first.
-    remote.onBeforePut = null;
-    await deviceB.business.setPreference('seed_v1', 'x');
-    await deviceB.engine.fullSync(remote);
-    await deviceA.engine.pullOnce(remote);
-
-    hijacked = false;
-    remote.onBeforePut = (path) {
-      if (path == 'manifest.json' && !hijacked) {
-        hijacked = true;
         remote.etags['manifest.json'] = 'hijacked';
       }
     };
-    await deviceA.engine.pushOnce(remote);
+    await deviceA.engine.syncOnce(remote);
     expect(hijacked, isTrue);
     expect(remote.objects.containsKey('conversations/conv-1.json'), isTrue);
 
     remote.onBeforePut = null;
-    await deviceB.engine.fullSync(remote);
+    await deviceB.engine.syncOnce(remote);
     expect(await deviceB.conversationIds(), ['conv-1']);
   });
 
-  test('suppressed writes never mark dirty (no echo loops)', () async {
+  test('applying remote state leaves no pending queue (no echo)', () async {
     await seedConversation(deviceA, 'conv-1');
-    await deviceA.engine.fullSync(remote);
+    await deviceA.engine.syncOnce(remote);
     expect(await deviceA.stateStore.snapshotDirty(), isEmpty);
 
-    // Pulling on B applies remote data without creating loud dirty entries
-    // that would echo the same bytes back.
-    await deviceB.engine.fullSync(remote);
-    final dirtyOnB = await deviceB.stateStore.snapshotDirty();
-    expect(dirtyOnB.where((entry) => !entry.quiet), isEmpty);
+    await deviceB.engine.syncOnce(remote);
+    expect(await deviceB.stateStore.snapshotDirty(), isEmpty);
+    expect(await deviceB.stateStore.allTombstones(), isEmpty);
+
+    // A no-op follow-up round transfers nothing (304 shortcut path).
+    final putsBefore = remote.putCount;
+    await deviceB.engine.syncOnce(remote);
+    expect(remote.putCount, putsBefore);
+  });
+
+  test('repository writes queue loud change events for the push', () async {
+    await seedConversation(deviceA, 'conv-1');
+    final dirty = await deviceA.stateStore.snapshotDirty();
+    expect(dirty, isNotEmpty);
+    expect(dirty.any((entry) => !entry.quiet), isTrue);
+
+    await deviceA.business.setPreference('theme_mode_v1', 'dark');
+    final withSettings = await deviceA.stateStore.snapshotDirty();
+    expect(
+      withSettings.any((entry) => entry.scope == SyncScope.settings),
+      isTrue,
+    );
   });
 }

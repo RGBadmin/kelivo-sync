@@ -5699,11 +5699,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String syncEnableConfirmHasData(int revision, String time) {
-    return '云端已有同步数据（版本 $revision，最后写入 $time），启用后将与本机数据双向合并。数据以明文存储在你的服务器上。';
+    return '云端已有同步数据（版本 $revision，最后写入 $time）。启用后云端数据将覆盖本机数据（包括删除本机多余内容），完成后需重启应用。数据以明文存储在你的服务器上。';
   }
 
   @override
-  String get syncEnableConfirmNoData => '将把本机全部数据上传到云端，数据以明文存储在你的服务器上。';
+  String get syncEnableConfirmNoData =>
+      '云端暂无数据，将把本机全部数据上传作为初始版本。此后始终以最新修改的一端覆盖另一端。数据以明文存储在你的服务器上。';
 
   @override
   String get syncEnableConfirmOk => '启用';
@@ -11425,11 +11426,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String syncEnableConfirmHasData(int revision, String time) {
-    return '云端已有同步数据（版本 $revision，最后写入 $time），启用后将与本机数据双向合并。数据以明文存储在你的服务器上。';
+    return '云端已有同步数据（版本 $revision，最后写入 $time）。启用后云端数据将覆盖本机数据（包括删除本机多余内容），完成后需重启应用。数据以明文存储在你的服务器上。';
   }
 
   @override
-  String get syncEnableConfirmNoData => '将把本机全部数据上传到云端，数据以明文存储在你的服务器上。';
+  String get syncEnableConfirmNoData =>
+      '云端暂无数据，将把本机全部数据上传作为初始版本。此后始终以最新修改的一端覆盖另一端。数据以明文存储在你的服务器上。';
 
   @override
   String get syncEnableConfirmOk => '启用';
@@ -17151,11 +17153,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String syncEnableConfirmHasData(int revision, String time) {
-    return '雲端已有同步資料（版本 $revision，最後寫入 $time），啟用後將與本機資料雙向合併。資料會以明文儲存在你的伺服器上。';
+    return '雲端已有同步資料（版本 $revision，最後寫入 $time）。啟用後雲端資料將覆蓋本機資料（包括刪除本機多餘內容），完成後需重新啟動應用。資料會以明文儲存在你的伺服器上。';
   }
 
   @override
-  String get syncEnableConfirmNoData => '將把本機全部資料上傳到雲端，資料會以明文儲存在你的伺服器上。';
+  String get syncEnableConfirmNoData =>
+      '雲端暫無資料，將把本機全部資料上傳作為初始版本。此後始終以最新修改的一端覆蓋另一端。資料會以明文儲存在你的伺服器上。';
 
   @override
   String get syncEnableConfirmOk => '啟用';

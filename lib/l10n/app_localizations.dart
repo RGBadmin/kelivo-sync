@@ -10883,13 +10883,13 @@ abstract class AppLocalizations {
   /// No description provided for @syncEnableConfirmHasData.
   ///
   /// In en, this message translates to:
-  /// **'The cloud already has sync data (revision {revision}, last written {time}). After enabling, it will be merged both ways with local data. Data is stored in plaintext on your server.'**
+  /// **'The cloud already has sync data (revision {revision}, last written {time}). Enabling will overwrite this device with the cloud data (including deleting local extras); a restart follows. Data is stored in plaintext on your server.'**
   String syncEnableConfirmHasData(int revision, String time);
 
   /// No description provided for @syncEnableConfirmNoData.
   ///
   /// In en, this message translates to:
-  /// **'All local data will be uploaded to the cloud. Data is stored in plaintext on your server.'**
+  /// **'The cloud is empty; all local data will be uploaded as the initial version. From then on the most recently modified side always overwrites the other. Data is stored in plaintext on your server.'**
   String get syncEnableConfirmNoData;
 
   /// No description provided for @syncEnableConfirmOk.
