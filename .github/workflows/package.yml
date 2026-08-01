@@ -113,3 +113,4 @@ jobs:
             - `kelivo-sync-x86_64.apk`：安卓模拟器
             包名 com.psyche.kelivo.sync，可与官方版 Kelivo 共存安装。
           files: artifacts/*
+# build
