@@ -154,6 +154,24 @@ class DesktopSyncPane extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (syncing && sync.activity != null) ...[
+                      _rowDivider(context),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          sync.activity!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: cs.onSurface.withValues(alpha: 0.55),
+                          ),
+                        ),
+                      ),
+                    ],
                     _rowDivider(context),
                     _ItemRow(
                       label: l10n.syncLastSyncAt,

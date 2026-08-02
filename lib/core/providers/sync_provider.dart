@@ -123,8 +123,16 @@ class SyncService extends ChangeNotifier
   int _consecutiveFailures = 0;
   bool _disposed = false;
   bool _budgetExhausted = false;
+  String? _activity;
 
   bool get dailyBudgetExhausted => _budgetExhausted;
+
+  /// What the engine is doing right now ("上传会话 …"); null when idle.
+  String? get activity => _activity;
+
+  /// A hard cap so no single round can hold "syncing" forever, whatever
+  /// happens inside; per-request timeouts keep normal failures much faster.
+  static const _roundWatchdog = Duration(minutes: 20);
 
   static String _todayStamp() =>
       DateTime.now().toIso8601String().substring(0, 10);
@@ -296,7 +304,7 @@ class SyncService extends ChangeNotifier
     _setPhase(SyncPhase.syncing);
     try {
       final engine = await _ensureEngine();
-      final report = await operation(engine, store);
+      final report = await operation(engine, store).timeout(_roundWatchdog);
       await _applyUiRefresh(report);
       _consecutiveFailures = 0;
       _lastError = null;
@@ -351,8 +359,8 @@ class SyncService extends ChangeNotifier
       // answer 409 on writes into a missing collection.
       await store.ensureReady();
       final report = uploadLocal
-          ? await engine.forceUpload(store)
-          : await engine.syncOnce(store);
+          ? await engine.forceUpload(store).timeout(_roundWatchdog)
+          : await engine.syncOnce(store).timeout(_roundWatchdog);
       await _applyUiRefresh(report);
       _consecutiveFailures = 0;
       _lastError = null;
@@ -448,6 +456,10 @@ class SyncService extends ChangeNotifier
     final database = _chatRepository.syncDatabase;
     final stateStore = SyncStateStore(database);
     await stateStore.initializeClock();
+    final assetTransfer = SyncAssetTransfer(
+      database: database,
+      appDataDirectory: appDataDirectory,
+    );
     final engine = SyncEngine(
       database: database,
       stateStore: stateStore,
@@ -456,12 +468,11 @@ class SyncService extends ChangeNotifier
         appDataDirectory: appDataDirectory,
       ),
       merger: SyncMerger(database),
-      assetTransfer: SyncAssetTransfer(
-        database: database,
-        appDataDirectory: appDataDirectory,
-      ),
+      assetTransfer: assetTransfer,
       deviceId: _installationId,
     );
+    engine.onActivity = _onEngineActivity;
+    assetTransfer.onActivity = _onEngineActivity;
     await engine.ensureConsistentIdentity();
     final lastSyncRaw = await stateStore.readMeta(
       SyncStateStore.metaLastSyncAt,
@@ -542,7 +553,7 @@ class SyncService extends ChangeNotifier
     try {
       final engine = await _ensureEngine();
       // One round = one manifest fetch + mirror in the winning direction.
-      final report = await engine.syncOnce(store);
+      final report = await engine.syncOnce(store).timeout(_roundWatchdog);
       await _applyUiRefresh(report);
       await _recordUploads(report.uploadedObjects);
       if (_budgetExhausted) return;
@@ -609,8 +620,15 @@ class SyncService extends ChangeNotifier
     });
   }
 
+  void _onEngineActivity(String message) {
+    if (_disposed) return;
+    _activity = message;
+    notifyListeners();
+  }
+
   void _setPhase(SyncPhase phase) {
     if (_disposed) return;
+    if (phase != SyncPhase.syncing) _activity = null;
     _phase = phase;
     notifyListeners();
   }

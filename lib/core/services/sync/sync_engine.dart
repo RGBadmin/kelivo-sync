@@ -89,6 +89,15 @@ final class SyncEngine {
   final SyncAssetTransfer _assets;
   final String _deviceId;
 
+  /// Live activity feed for the status UI ("uploading X", "attempt 2/5").
+  void Function(String message)? onActivity;
+
+  void _act(String message) {
+    try {
+      onActivity?.call(message);
+    } catch (_) {}
+  }
+
   /// First-run / restored-database detection: when the database was not
   /// previously synced by THIS installation, remote application state is
   /// discarded, everything local is queued (quietly) for a sha reconcile,
@@ -119,6 +128,7 @@ final class SyncEngine {
       final tombstones = await _stateStore.allTombstones();
       final hasPending = dirty.isNotEmpty || tombstones.isNotEmpty;
 
+      _act(attempt == 0 ? '检查云端索引…' : '索引提交冲突，重试 ${attempt + 1}/$_maxConflictRetries…');
       final knownEtag = hasPending
           ? null
           : await _stateStore.readMeta(SyncStateStore.metaLastManifestEtag);
@@ -190,6 +200,10 @@ final class SyncEngine {
           remoteEtag,
           dirty,
           tombstones,
+          // Two straight conditional-write conflicts usually mean the server
+          // mishandles If-Match; degrade to an unconditional write rather
+          // than burning quota in an endless retry loop.
+          allowUnconditional: attempt >= 2,
         );
         if (report == null) continue; // Conditional write lost; re-decide.
         return report;
@@ -237,6 +251,7 @@ final class SyncEngine {
         remoteEtag,
         dirty,
         tombstones,
+        allowUnconditional: attempt >= 2,
       );
       if (report != null) return report;
     }
@@ -309,6 +324,7 @@ final class SyncEngine {
           deferred = true;
           continue;
         }
+        _act('下载会话 $conversationId…');
         final result = await store.getObject(path);
         if (result is! RemoteObjectData) continue;
         final object = SyncObjectCodec.parseObject(result.bytes);
@@ -426,8 +442,9 @@ final class SyncEngine {
     SyncManifest remote,
     String? remoteEtag,
     List<SyncDirtyEntry> dirty,
-    List<SyncTombstone> tombstones,
-  ) async {
+    List<SyncTombstone> tombstones, {
+    bool allowUnconditional = false,
+  }) async {
     final active = await _activeConversationIds();
     final objects = Map<String, SyncObjectEntry>.of(remote.objects)
       ..remove(SyncManifest.tombstonesPath); // Legacy layout cleanup.
@@ -445,6 +462,7 @@ final class SyncEngine {
             continue;
           }
           final path = 'conversations/$conversationId.json';
+          _act('上传会话 $conversationId…');
           final export = await _codec.exportConversation(conversationId);
           if (export == null) {
             objects.remove(path);
@@ -531,13 +549,15 @@ final class SyncEngine {
       assets: assetMap,
     );
     final encoded = next.encode();
+    _act('提交云端索引…');
     final String? newEtag;
     try {
       newEtag = await store.putObject(
         SyncManifest.path,
         Uint8List.fromList(encoded),
-        ifMatch: remoteEtag,
-        ifAbsent: remoteEtag == null && remote.revision == 0,
+        ifMatch: allowUnconditional ? null : remoteEtag,
+        ifAbsent:
+            !allowUnconditional && remoteEtag == null && remote.revision == 0,
       );
     } on RemotePreconditionFailedException {
       return null;

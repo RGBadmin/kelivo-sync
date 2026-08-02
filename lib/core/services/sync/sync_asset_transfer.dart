@@ -22,6 +22,9 @@ final class SyncAssetTransfer {
   final AppDatabase _db;
   final Directory _appDataDirectory;
 
+  /// Live activity feed for the status UI.
+  void Function(String message)? onActivity;
+
   static const _knownSubdirs = {'upload', 'images', 'avatars', 'fonts'};
 
   /// Uploads every referenced asset the remote does not have yet. Returns
@@ -38,6 +41,9 @@ final class SyncAssetTransfer {
         continue;
       }
       if (!await ref.file.exists()) continue;
+      try {
+        onActivity?.call('上传附件 ${ref.name}…');
+      } catch (_) {}
       await store.putFile('assets/${ref.hash}', ref.file);
       uploaded[ref.hash] = await ref.file.length();
     }
@@ -82,6 +88,9 @@ final class SyncAssetTransfer {
       final target = File(
         '${_appDataDirectory.path}/$subdir/sync_${shortHash}_$name',
       );
+      try {
+        onActivity?.call('下载附件 $name…');
+      } catch (_) {}
       try {
         final found = await store.getToFile('assets/${want.hash}', target);
         if (!found) continue;
