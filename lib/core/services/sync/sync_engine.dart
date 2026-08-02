@@ -221,6 +221,49 @@ final class SyncEngine {
     throw const SyncConflictRetriesExhaustedException();
   }
 
+  /// Incremental push: uploads pending local changes (creations, edits AND
+  /// deletions since the last push) without ever pulling remote data.
+  /// No-op when nothing is pending. This is the ONLY operation the runtime
+  /// triggers (message sent / generation finished / interval tick).
+  Future<SyncPullReport> pushPending(SyncRemoteStore store) async {
+    for (var attempt = 0; attempt < _maxConflictRetries; attempt++) {
+      final dirty = await _stateStore.snapshotDirty();
+      final tombstones = await _stateStore.allTombstones();
+      if (dirty.isEmpty && tombstones.isEmpty) return const SyncPullReport();
+
+      _act(attempt == 0
+          ? '准备上传变更…'
+          : '索引提交冲突，重试 ${attempt + 1}/$_maxConflictRetries…');
+      SyncManifest remote;
+      String? remoteEtag;
+      switch (await store.getObject(SyncManifest.path)) {
+        case RemoteObjectMissing():
+          await store.ensureReady();
+          remote = SyncManifest.empty(AppDatabase.currentSchemaVersion);
+          remoteEtag = null;
+        case RemoteObjectData(:final bytes, :final etag):
+          remote = SyncManifest.decode(bytes);
+          remoteEtag = etag;
+        case RemoteObjectUnchanged():
+          throw StateError('sync_manifest_unchanged_without_etag');
+      }
+      if (remote.schemaVersion > AppDatabase.currentSchemaVersion) {
+        throw SyncSchemaTooNewException(remote.schemaVersion);
+      }
+      SyncClock.observe(remote.writtenAt);
+      final report = await _mirrorPush(
+        store,
+        remote,
+        remoteEtag,
+        dirty,
+        tombstones,
+        allowUnconditional: attempt >= 2,
+      );
+      if (report != null) return report;
+    }
+    throw const SyncConflictRetriesExhaustedException();
+  }
+
   /// Manual "upload to cloud": makes the remote identical to local state,
   /// regardless of which side is newer.
   Future<SyncPullReport> forceUpload(SyncRemoteStore store) async {

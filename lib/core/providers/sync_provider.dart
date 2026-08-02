@@ -34,13 +34,15 @@ enum SyncPhase {
   /// Enabled and quiet; nothing in flight.
   idle,
 
-  /// A pull/push round is running.
+  /// A round is running.
   syncing,
 
-  /// Last round failed with a network-ish error; backoff retry scheduled.
+  /// Last round failed; the next trigger (message / generation / interval)
+  /// retries after the cooldown.
   retrying,
 
-  /// Credentials rejected or config invalid; no automatic retries.
+  /// Credentials/config invalid or the daily budget fuse blew; no automatic
+  /// activity until the user intervenes (or the day rolls over).
   configError,
 
   /// The remote was written by a newer schema; user must update the app.
@@ -55,11 +57,20 @@ typedef SyncRemoteProbe = ({
   DateTime? writtenAt,
 });
 
-/// Orchestrates automatic multi-device sync: startup reconcile, debounced
-/// push on local changes, periodic remote polling, lifecycle flushes.
-class SyncService extends ChangeNotifier
-    with WidgetsBindingObserver
-    implements SyncWriteObserver {
+/// Sync scheduler, rebuilt around three explicit push triggers and nothing
+/// else:
+///
+///  1. the user sent a message;
+///  2. an AI generation finished;
+///  3. a fixed interval tick.
+///
+/// Every push is incremental — it uploads whatever changed since the last
+/// push (creations, edits and deletions alike) and never reads remote
+/// changes. Receiving happens exactly twice: the bidirectional
+/// newest-wins reconcile at startup, and the manual "download from cloud"
+/// button. There are no write observers, no debounce, no retry timers and
+/// no lifecycle-triggered rounds.
+class SyncService extends ChangeNotifier with WidgetsBindingObserver {
   SyncService({
     required ChatDatabaseRepository chatRepository,
     required BusinessRepository businessRepository,
@@ -71,13 +82,14 @@ class SyncService extends ChangeNotifier
        _businessPreferences = businessPreferences,
        _chatService = chatService,
        _installationId = installationId {
-    _chatRepository.syncObserver = this;
     _chatRepository.syncDeviceId = installationId;
-    _businessRepository.syncObserver = this;
     _businessRepository.syncDeviceId = installationId;
+    SyncPushSignals.onUserMessageSent = _onChatSignal;
+    SyncPushSignals.onGenerationFinished = _onChatSignal;
     WidgetsBinding.instance.addObserver(this);
   }
 
+  // ===== Configuration keys (device-local) =====
   static const enabledKey = 'sync_enabled_v1';
   static const backendKey = 'sync_backend_v1';
   static const pollIntervalKey = 'sync_poll_interval_minutes_v1';
@@ -86,21 +98,24 @@ class SyncService extends ChangeNotifier
   static const _uploadCountKey = 'sync_upload_count_v1';
   static const _uploadDateKey = 'sync_upload_date_v1';
 
-  /// Quota fuse: when automatic rounds upload more objects than this within
-  /// one calendar day, automatic syncing pauses until the next day (manual
-  /// upload/download stays available). Normal usage is a few hundred at
-  /// most; only a runaway loop can reach this.
-  static const dailyUploadBudget = 2000;
-
-  // Rate-limit friendly cadence: WebDAV providers like Jianguoyun throttle
-  // aggressively (HTTP 503), so changes coalesce for 10s and automatic
-  // rounds never run more often than every 20s.
-  static const _debounceDuration = Duration(seconds: 10);
-  static const _minAutoRoundGap = Duration(seconds: 20);
-  static const _minRetryDelay = Duration(seconds: 5);
-  static const _maxRetryDelay = Duration(minutes: 5);
-  static const _rateLimitedRetryDelay = Duration(minutes: 3);
   static const defaultPollMinutes = 5;
+
+  /// A chat signal fires the push after a short settle delay so the
+  /// follow-up writes of the same action land in the same push.
+  static const _signalSettleDelay = Duration(seconds: 2);
+
+  /// After a failed round, triggers are ignored until the cooldown passes;
+  /// rate-limited servers get a much longer one.
+  static const _errorCooldown = Duration(seconds: 30);
+  static const _rateLimitCooldown = Duration(minutes: 3);
+
+  /// A hard cap so no single round can hold "syncing" forever.
+  static const _roundWatchdog = Duration(minutes: 20);
+
+  /// Quota fuse: automatic pushes stop for the rest of the day once this
+  /// many objects were uploaded within one calendar day. Normal usage is a
+  /// few hundred at most; only a runaway loop can reach this.
+  static const dailyUploadBudget = 2000;
 
   final ChatDatabaseRepository _chatRepository;
   final BusinessRepository _businessRepository;
@@ -116,65 +131,32 @@ class SyncService extends ChangeNotifier
 
   SyncPhase _phase = SyncPhase.disabled;
   String? _lastError;
-  DateTime? _lastSyncAt;
-  DateTime? _lastRoundAt;
-  bool _syncing = false;
-  bool _followUpRequested = false;
-  int _consecutiveFailures = 0;
-  bool _disposed = false;
-  bool _budgetExhausted = false;
   String? _activity;
+  DateTime? _lastSyncAt;
+  DateTime? _cooldownUntil;
+  bool _running = false;
+  bool _budgetExhausted = false;
+  bool _disposed = false;
 
-  bool get dailyBudgetExhausted => _budgetExhausted;
-
-  /// What the engine is doing right now ("上传会话 …"); null when idle.
-  String? get activity => _activity;
-
-  /// A hard cap so no single round can hold "syncing" forever, whatever
-  /// happens inside; per-request timeouts keep normal failures much faster.
-  static const _roundWatchdog = Duration(minutes: 20);
-
-  static String _todayStamp() =>
-      DateTime.now().toIso8601String().substring(0, 10);
-
-  Future<int> _recordUploads(int uploadedObjects) async {
-    final preferences = await SharedPreferences.getInstance();
-    final today = _todayStamp();
-    var total = preferences.getString(_uploadDateKey) == today
-        ? (preferences.getInt(_uploadCountKey) ?? 0)
-        : 0;
-    total += uploadedObjects;
-    await preferences.setString(_uploadDateKey, today);
-    await preferences.setInt(_uploadCountKey, total);
-    if (total > dailyUploadBudget && !_budgetExhausted) {
-      _budgetExhausted = true;
-      _pollTimer?.cancel();
-      _debounceTimer?.cancel();
-      _lastError = '今日自动同步上传已达安全上限（$dailyUploadBudget 次），'
-          '已暂停自动同步保护存储配额；手动上传/下载仍可用，明日自动恢复';
-      _setPhase(SyncPhase.configError);
-    } else if (total <= dailyUploadBudget && _budgetExhausted) {
-      // New day: the counter reset above re-arms automatic syncing.
-      _budgetExhausted = false;
-    }
-    return total;
-  }
-
-  Timer? _debounceTimer;
-  Timer? _pollTimer;
-  Timer? _retryTimer;
+  Timer? _signalTimer;
+  Timer? _intervalTimer;
+  AppLifecycleState? _lastLifecycleState;
 
   /// Optional hook the app shell installs to reload settings-backed
   /// providers after remote business data was applied.
   VoidCallback? onBusinessDataApplied;
 
+  // ===== Public state =====
   SyncPhase get phase => _phase;
   bool get isEnabled => _enabled;
   SyncBackendKind get backend => _backend;
   int get pollMinutes => _pollMinutes;
   String? get lastError => _lastError;
+  String? get activity => _activity;
   DateTime? get lastSyncAt => _lastSyncAt;
+  bool get dailyBudgetExhausted => _budgetExhausted;
   bool get wallClockLooksSkewed => SyncClock.wallClockLooksSkewed();
+  bool get backendConfigured => _buildStore() != null;
 
   // ===== Lifecycle =====
 
@@ -194,32 +176,30 @@ class SyncService extends ChangeNotifier
         (preferences.getInt(_uploadCountKey) ?? 0) > dailyUploadBudget;
     await _ensureEngine();
     if (_budgetExhausted) {
-      _lastError = '今日自动同步上传已达安全上限（$dailyUploadBudget 次），'
-          '已暂停自动同步保护存储配额；手动上传/下载仍可用，明日自动恢复';
+      _lastError = _budgetMessage;
       _setPhase(SyncPhase.configError);
       return;
     }
-    _startPolling();
-    unawaited(_runSync(full: true, auto: false));
+    _startIntervalTimer();
+    // Startup is the one bidirectional moment: newest side wins, applied
+    // as an object-level mirror diff.
+    unawaited(_runRound((engine, store) => engine.syncOnce(store)));
   }
 
   @override
   void dispose() {
     _disposed = true;
-    _debounceTimer?.cancel();
-    _pollTimer?.cancel();
-    _retryTimer?.cancel();
+    _signalTimer?.cancel();
+    _intervalTimer?.cancel();
+    if (identical(SyncPushSignals.onUserMessageSent, _onChatSignal)) {
+      SyncPushSignals.onUserMessageSent = null;
+    }
+    if (identical(SyncPushSignals.onGenerationFinished, _onChatSignal)) {
+      SyncPushSignals.onGenerationFinished = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
-    if (identical(_chatRepository.syncObserver, this)) {
-      _chatRepository.syncObserver = null;
-    }
-    if (identical(_businessRepository.syncObserver, this)) {
-      _businessRepository.syncObserver = null;
-    }
     super.dispose();
   }
-
-  AppLifecycleState? _lastLifecycleState;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -227,164 +207,76 @@ class SyncService extends ChangeNotifier
     _lastLifecycleState = state;
     if (!_enabled) return;
     if (state == AppLifecycleState.paused) {
-      _pollTimer?.cancel();
-      _pollTimer = null;
-      if (_debounceTimer?.isActive ?? false) {
-        _debounceTimer!.cancel();
-        unawaited(_runSync());
-      }
+      // The process may be killed while backgrounded: one bounded push so
+      // the last actions reach the cloud. Timers stop meanwhile.
+      _intervalTimer?.cancel();
+      _intervalTimer = null;
+      _signalTimer?.cancel();
+      unawaited(flushPendingPush());
     } else if (state == AppLifecycleState.resumed &&
         previous == AppLifecycleState.paused) {
-      // Only a genuine return from background triggers a round; desktop
-      // focus changes bounce through inactive/resumed constantly and must
-      // not spam the remote. The gap limiter applies (auto: true).
-      _startPolling();
-      unawaited(_runSync(full: true));
+      _startIntervalTimer();
     }
   }
 
-  /// Registered with AppExitFlush: best-effort push of pending changes
-  /// before exit. Must never make closing the window feel stuck: skips
-  /// instantly when a round is already running or nothing is pending, and
-  /// caps the attempt hard — the dirty queue survives in SQLite either way.
+  /// Registered with AppExitFlush: best-effort bounded push of pending
+  /// changes. Must never make closing the app feel stuck.
   Future<void> flushPendingPush() async {
-    if (!_enabled || _syncing) return;
-    _debounceTimer?.cancel();
+    if (!_enabled || _running) return;
     try {
       final engine = await _ensureEngine();
       final store = _buildStore();
       if (store == null) return;
       if (!await engine.hasPendingLocalChanges()) return;
-      await engine.syncOnce(store).timeout(const Duration(seconds: 2));
+      await engine.pushPending(store).timeout(const Duration(seconds: 2));
     } catch (_) {
-      // Exit flush is best effort; the dirty queue survives in SQLite.
+      // Best effort; the pending queue survives in SQLite.
     }
   }
 
-  // ===== SyncWriteObserver =====
+  // ===== Triggers =====
 
-  @override
-  void onLocalChange({required SyncScope scope, required bool quiet}) {
-    if (!_enabled || quiet || _disposed || _budgetExhausted) return;
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(_debounceDuration, () {
-      unawaited(_runSync());
+  void _onChatSignal() {
+    if (!_enabled || _disposed || _budgetExhausted || _inCooldown) return;
+    _signalTimer?.cancel();
+    _signalTimer = Timer(_signalSettleDelay, () {
+      unawaited(_runRound((engine, store) => engine.pushPending(store)));
     });
+  }
+
+  void _startIntervalTimer() {
+    _intervalTimer?.cancel();
+    _intervalTimer = Timer.periodic(Duration(minutes: _pollMinutes), (_) {
+      if (_budgetExhausted) {
+        unawaited(_maybeReleaseBudget());
+        return;
+      }
+      if (_inCooldown) return;
+      unawaited(_runRound((engine, store) => engine.pushPending(store)));
+    });
+  }
+
+  bool get _inCooldown {
+    final until = _cooldownUntil;
+    return until != null && DateTime.now().isBefore(until);
   }
 
   // ===== User actions =====
 
-  Future<void> syncNow() async {
-    if (!_enabled) return;
-    _retryTimer?.cancel();
-    await _runSync(full: true, auto: false);
-  }
-
   /// Manual upload: make the cloud identical to this device.
-  Future<void> uploadNow() =>
-      _runManual((engine, store) => engine.forceUpload(store));
+  Future<void> uploadNow() async {
+    await _runRound(
+      (engine, store) => engine.forceUpload(store),
+      manual: true,
+    );
+  }
 
   /// Manual download: make this device identical to the cloud. Returns the
   /// report so the UI can prompt for a restart when settings changed.
-  Future<SyncPullReport?> downloadNow() =>
-      _runManual((engine, store) => engine.forceDownload(store));
-
-  Future<SyncPullReport?> _runManual(
-    Future<SyncPullReport> Function(SyncEngine engine, SyncRemoteStore store)
-    operation,
-  ) async {
-    if (!_enabled || _syncing) return null;
-    final store = _buildStore();
-    if (store == null) {
-      _lastError = 'sync_backend_not_configured';
-      _setPhase(SyncPhase.configError);
-      return null;
-    }
-    _retryTimer?.cancel();
-    _syncing = true;
-    _lastRoundAt = DateTime.now();
-    _setPhase(SyncPhase.syncing);
-    try {
-      final engine = await _ensureEngine();
-      final report = await operation(engine, store).timeout(_roundWatchdog);
-      await _applyUiRefresh(report);
-      _consecutiveFailures = 0;
-      _lastError = null;
-      _lastSyncAt = DateTime.now();
-      _setPhase(SyncPhase.idle);
-      return report;
-    } on SyncSchemaTooNewException {
-      _lastError = 'sync_schema_too_new';
-      _setPhase(SyncPhase.needsAppUpdate);
-      return null;
-    } on RemoteAuthException catch (error) {
-      _lastError = error.message;
-      _setPhase(SyncPhase.configError);
-      return null;
-    } on RemoteRateLimitedException catch (error) {
-      _lastError = '服务器限流 (${error.message})，已暂停并将稍后自动重试';
-      _setPhase(SyncPhase.retrying);
-      return null;
-    } catch (error) {
-      _lastError = '$error';
-      _setPhase(SyncPhase.retrying);
-      return null;
-    } finally {
-      _syncing = false;
-    }
-  }
-
-  /// Enable flow for the settings UI: switches sync on, creates the remote
-  /// directories, then runs the FIRST sync synchronously so the caller can
-  /// show progress. With [uploadLocal] the local state force-overwrites the
-  /// cloud; otherwise the engine's normal first-sync rule applies (a
-  /// populated cloud overwrites this device, and the caller prompts for a
-  /// restart). Later rounds are incremental and run in the background.
-  Future<SyncPullReport> enableWithInitialSync({
-    bool uploadLocal = false,
-  }) async {
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setBool(enabledKey, true);
-    _enabled = true;
-    final store = _buildStore();
-    if (store == null) {
-      _lastError = 'sync_backend_not_configured';
-      _setPhase(SyncPhase.configError);
-      throw StateError('sync_backend_not_configured');
-    }
-    _syncing = true;
-    _lastRoundAt = DateTime.now();
-    _setPhase(SyncPhase.syncing);
-    try {
-      final engine = await _ensureEngine();
-      // Create kelivo_sync/ and its subdirectories up front; WebDAV servers
-      // answer 409 on writes into a missing collection.
-      await store.ensureReady();
-      final report = uploadLocal
-          ? await engine.forceUpload(store).timeout(_roundWatchdog)
-          : await engine.syncOnce(store).timeout(_roundWatchdog);
-      await _applyUiRefresh(report);
-      _consecutiveFailures = 0;
-      _lastError = null;
-      _lastSyncAt = DateTime.now();
-      _setPhase(SyncPhase.idle);
-      return report;
-    } on RemoteRateLimitedException catch (error) {
-      _lastError = '服务器限流 (${error.message})，已暂停并将稍后自动重试';
-      _setPhase(SyncPhase.retrying);
-      _scheduleRetry(_rateLimitedRetryDelay);
-      rethrow;
-    } catch (error) {
-      _lastError = '$error';
-      _setPhase(SyncPhase.retrying);
-      _scheduleRetry(_backoffDelay());
-      rethrow;
-    } finally {
-      _syncing = false;
-      _startPolling();
-      notifyListeners();
-    }
-  }
+  Future<SyncPullReport?> downloadNow() => _runRound(
+    (engine, store) => engine.forceDownload(store),
+    manual: true,
+  );
 
   Future<void> setEnabled(bool value) async {
     final preferences = await SharedPreferences.getInstance();
@@ -392,16 +284,40 @@ class SyncService extends ChangeNotifier
     _enabled = value;
     if (value) {
       await _ensureEngine();
-      _startPolling();
+      _startIntervalTimer();
       _setPhase(SyncPhase.idle);
-      unawaited(_runSync(full: true));
     } else {
-      _debounceTimer?.cancel();
-      _pollTimer?.cancel();
-      _retryTimer?.cancel();
+      _signalTimer?.cancel();
+      _intervalTimer?.cancel();
+      _intervalTimer = null;
       _setPhase(SyncPhase.disabled);
     }
     notifyListeners();
+  }
+
+  /// Enable flow for the settings UI: switches sync on and runs the FIRST
+  /// round synchronously so the caller can show progress. [uploadLocal]
+  /// force-overwrites the cloud with this device; otherwise a populated
+  /// cloud overwrites this device (the caller then prompts for a restart).
+  Future<SyncPullReport> enableWithInitialSync({
+    bool uploadLocal = false,
+  }) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(enabledKey, true);
+    _enabled = true;
+    final report = await _runRound(
+      (engine, store) async {
+        await store.ensureReady();
+        return uploadLocal
+            ? await engine.forceUpload(store)
+            : await engine.syncOnce(store);
+      },
+      manual: true,
+      rethrowErrors: true,
+    );
+    _startIntervalTimer();
+    if (report == null) throw StateError('sync_busy');
+    return report;
   }
 
   Future<void> setBackend(SyncBackendKind value) async {
@@ -412,7 +328,6 @@ class SyncService extends ChangeNotifier
     );
     _backend = value;
     notifyListeners();
-    if (_enabled) unawaited(_runSync(full: true));
   }
 
   Future<void> setPollMinutes(int minutes) async {
@@ -420,7 +335,7 @@ class SyncService extends ChangeNotifier
     final preferences = await SharedPreferences.getInstance();
     await preferences.setInt(pollIntervalKey, normalized);
     _pollMinutes = normalized;
-    if (_enabled) _startPolling();
+    if (_enabled) _startIntervalTimer();
     notifyListeners();
   }
 
@@ -446,10 +361,109 @@ class SyncService extends ChangeNotifier
     return (hasData: false, revision: 0, lastWriter: '', writtenAt: null);
   }
 
-  /// True when the selected backend has a plausible configuration.
-  bool get backendConfigured => _buildStore() != null;
+  // ===== Round execution =====
 
-  // ===== Internals =====
+  Future<SyncPullReport?> _runRound(
+    Future<SyncPullReport> Function(SyncEngine engine, SyncRemoteStore store)
+    operation, {
+    bool manual = false,
+    bool rethrowErrors = false,
+  }) async {
+    if (!_enabled || _disposed || _running) return null;
+    if (!manual && _budgetExhausted) return null;
+    final store = _buildStore();
+    if (store == null) {
+      _lastError = 'sync_backend_not_configured';
+      _setPhase(SyncPhase.configError);
+      if (rethrowErrors) throw StateError('sync_backend_not_configured');
+      return null;
+    }
+    if (manual) _cooldownUntil = null;
+    _running = true;
+    _setPhase(SyncPhase.syncing);
+    try {
+      final engine = await _ensureEngine();
+      final report = await operation(engine, store).timeout(_roundWatchdog);
+      await _applyUiRefresh(report);
+      await _recordUploads(report.uploadedObjects);
+      _lastError = null;
+      _lastSyncAt = DateTime.now();
+      _cooldownUntil = null;
+      _setPhase(_budgetExhausted ? SyncPhase.configError : SyncPhase.idle);
+      if (_budgetExhausted) _lastError = _budgetMessage;
+      return report;
+    } on SyncSchemaTooNewException {
+      _lastError = 'sync_schema_too_new';
+      _setPhase(SyncPhase.needsAppUpdate);
+      if (rethrowErrors) rethrow;
+      return null;
+    } on RemoteAuthException catch (error) {
+      _lastError = error.message;
+      _setPhase(SyncPhase.configError);
+      if (rethrowErrors) rethrow;
+      return null;
+    } on RemoteRateLimitedException catch (error) {
+      _lastError = '服务器限流 (${error.message})，暂停片刻后随下次触发重试';
+      _cooldownUntil = DateTime.now().add(_rateLimitCooldown);
+      _setPhase(SyncPhase.retrying);
+      if (rethrowErrors) rethrow;
+      return null;
+    } catch (error) {
+      _lastError = '$error';
+      _cooldownUntil = DateTime.now().add(_errorCooldown);
+      _setPhase(SyncPhase.retrying);
+      if (rethrowErrors) rethrow;
+      return null;
+    } finally {
+      _running = false;
+    }
+  }
+
+  Future<void> _applyUiRefresh(SyncPullReport report) async {
+    if (!report.uiRefreshNeeded) return;
+    if (report.businessChanged) {
+      await _businessPreferences.applyExternalSnapshot();
+      try {
+        onBusinessDataApplied?.call();
+      } catch (_) {}
+    }
+    if (report.changedConversationIds.isNotEmpty ||
+        report.deletedConversationIds.isNotEmpty) {
+      await _chatService.reloadAfterExternalMerge();
+    }
+  }
+
+  // ===== Budget fuse =====
+
+  static const _budgetMessage =
+      '今日自动同步上传已达安全上限（$dailyUploadBudget 次），'
+      '已暂停自动同步保护存储配额；手动上传/下载仍可用，明日自动恢复';
+
+  static String _todayStamp() =>
+      DateTime.now().toIso8601String().substring(0, 10);
+
+  Future<void> _recordUploads(int uploadedObjects) async {
+    final preferences = await SharedPreferences.getInstance();
+    final today = _todayStamp();
+    var total = preferences.getString(_uploadDateKey) == today
+        ? (preferences.getInt(_uploadCountKey) ?? 0)
+        : 0;
+    total += uploadedObjects;
+    await preferences.setString(_uploadDateKey, today);
+    await preferences.setInt(_uploadCountKey, total);
+    _budgetExhausted = total > dailyUploadBudget;
+  }
+
+  Future<void> _maybeReleaseBudget() async {
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.getString(_uploadDateKey) != _todayStamp()) {
+      _budgetExhausted = false;
+      _lastError = null;
+      _setPhase(SyncPhase.idle);
+    }
+  }
+
+  // ===== Wiring =====
 
   Future<SyncEngine> _ensureEngine() async {
     final existing = _engine;
@@ -509,117 +523,6 @@ class SyncService extends ChangeNotifier
         }
         return S3SyncRemoteStore(config);
     }
-  }
-
-  void _startPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(Duration(minutes: _pollMinutes), (_) {
-      unawaited(_runSync());
-    });
-  }
-
-  Future<void> _runSync({bool full = false, bool auto = true}) async {
-    if (!_enabled || _disposed) return;
-    if (auto && _budgetExhausted) {
-      // Re-arm automatically once the calendar day rolls over.
-      if (await _recordUploads(0) > dailyUploadBudget) return;
-    }
-    if (_syncing) {
-      _followUpRequested = true;
-      return;
-    }
-    // Automatic rounds keep a minimum gap so a chatty session cannot hammer
-    // rate-limited servers; the postponed round is rescheduled, not lost.
-    if (auto) {
-      final lastRound = _lastRoundAt;
-      if (lastRound != null) {
-        final sinceLast = DateTime.now().difference(lastRound);
-        if (sinceLast < _minAutoRoundGap) {
-          _debounceTimer?.cancel();
-          _debounceTimer = Timer(_minAutoRoundGap - sinceLast, () {
-            unawaited(_runSync(full: full));
-          });
-          return;
-        }
-      }
-    }
-    final store = _buildStore();
-    if (store == null) {
-      _lastError = 'sync_backend_not_configured';
-      _setPhase(SyncPhase.configError);
-      return;
-    }
-    _syncing = true;
-    _lastRoundAt = DateTime.now();
-    _setPhase(SyncPhase.syncing);
-    try {
-      final engine = await _ensureEngine();
-      // One round = one manifest fetch + mirror in the winning direction.
-      final report = await engine.syncOnce(store).timeout(_roundWatchdog);
-      await _applyUiRefresh(report);
-      await _recordUploads(report.uploadedObjects);
-      if (_budgetExhausted) return;
-      _consecutiveFailures = 0;
-      _lastError = null;
-      _lastSyncAt = DateTime.now();
-      _setPhase(SyncPhase.idle);
-      // Conversations skipped because a generation was still running are
-      // NOT retried on a timer: the generation's own completion write is a
-      // loud change event that schedules the next push. Event-driven only.
-    } on SyncSchemaTooNewException {
-      _lastError = 'sync_schema_too_new';
-      _setPhase(SyncPhase.needsAppUpdate);
-    } on RemoteAuthException catch (error) {
-      _lastError = error.message;
-      _setPhase(SyncPhase.configError);
-    } on RemoteRateLimitedException catch (error) {
-      // Hammering a throttled server extends the ban; wait several minutes.
-      _consecutiveFailures += 1;
-      _lastError = '服务器限流 (${error.message})，已暂停并将稍后自动重试';
-      _setPhase(SyncPhase.retrying);
-      _scheduleRetry(_rateLimitedRetryDelay * _consecutiveFailures.clamp(1, 5));
-    } catch (error) {
-      _consecutiveFailures += 1;
-      _lastError = '$error';
-      _setPhase(SyncPhase.retrying);
-      _scheduleRetry(_backoffDelay());
-    } finally {
-      _syncing = false;
-    }
-    if (_followUpRequested && _phase == SyncPhase.idle) {
-      _followUpRequested = false;
-      unawaited(_runSync());
-    } else {
-      _followUpRequested = false;
-    }
-  }
-
-  Future<void> _applyUiRefresh(SyncPullReport report) async {
-    if (!report.uiRefreshNeeded) return;
-    if (report.businessChanged) {
-      await _businessPreferences.applyExternalSnapshot();
-      try {
-        onBusinessDataApplied?.call();
-      } catch (_) {}
-    }
-    if (report.changedConversationIds.isNotEmpty ||
-        report.deletedConversationIds.isNotEmpty) {
-      await _chatService.reloadAfterExternalMerge();
-    }
-  }
-
-  Duration _backoffDelay() {
-    final exponent = _consecutiveFailures.clamp(1, 10);
-    var delay = _minRetryDelay * (1 << (exponent - 1));
-    if (delay > _maxRetryDelay) delay = _maxRetryDelay;
-    return delay;
-  }
-
-  void _scheduleRetry(Duration delay) {
-    _retryTimer?.cancel();
-    _retryTimer = Timer(delay, () {
-      unawaited(_runSync(full: true));
-    });
   }
 
   void _onEngineActivity(String message) {

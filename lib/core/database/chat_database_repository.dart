@@ -247,11 +247,11 @@ class ChatDatabaseRepository {
     int? checkpointSeq,
     String? errorCode,
     String? geminiThoughtSignature,
-  }) {
+  }) async {
     if (!terminalState.isTerminal) {
       throw ArgumentError.value(terminalState, 'terminalState');
     }
-    return _observer.measure(
+    final run = await _observer.measure(
       ChatDatabaseOperation.commandFinalCheckpoint,
       () => _db.transaction(() async {
         await _updateStreamingCheckpoint(
@@ -274,6 +274,10 @@ class ChatDatabaseRepository {
         );
       }),
     );
+    try {
+      SyncPushSignals.onGenerationFinished?.call();
+    } catch (_) {}
+    return run;
   }
 
   static Future<bool> migrateInstalledDatabase(File file) async {
@@ -2891,13 +2895,13 @@ class ChatDatabaseRepository {
     required ChatMessage userMessage,
     required ChatMessage assistantMessage,
     required String runId,
-  }) {
+  }) async {
     _validateGenerationBeginMessages(
       conversation: conversation,
       userMessage: userMessage,
       assistantMessage: assistantMessage,
     );
-    return _observer.measure(
+    final result = await _observer.measure(
       ChatDatabaseOperation.commandAppendMessage,
       () => _db.transaction(() async {
         final afterUser = await _appendLinearMessageToConversation(
@@ -2926,6 +2930,10 @@ class ChatDatabaseRepository {
         );
       }),
     );
+    try {
+      SyncPushSignals.onUserMessageSent?.call();
+    } catch (_) {}
+    return result;
   }
 
   Future<GenerationBeginResult> beginRegeneration({
