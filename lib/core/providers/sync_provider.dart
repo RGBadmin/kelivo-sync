@@ -243,17 +243,19 @@ class SyncService extends ChangeNotifier
     }
   }
 
-  /// Registered with AppExitFlush: pushes pending changes before exit.
+  /// Registered with AppExitFlush: best-effort push of pending changes
+  /// before exit. Must never make closing the window feel stuck: skips
+  /// instantly when a round is already running or nothing is pending, and
+  /// caps the attempt hard — the dirty queue survives in SQLite either way.
   Future<void> flushPendingPush() async {
-    if (!_enabled) return;
+    if (!_enabled || _syncing) return;
     _debounceTimer?.cancel();
     try {
       final engine = await _ensureEngine();
       final store = _buildStore();
       if (store == null) return;
-      if (await engine.hasPendingLocalChanges()) {
-        await engine.syncOnce(store);
-      }
+      if (!await engine.hasPendingLocalChanges()) return;
+      await engine.syncOnce(store).timeout(const Duration(seconds: 2));
     } catch (_) {
       // Exit flush is best effort; the dirty queue survives in SQLite.
     }
