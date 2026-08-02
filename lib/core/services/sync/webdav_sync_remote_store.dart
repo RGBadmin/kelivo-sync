@@ -21,6 +21,11 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
 
   static const defaultRootPath = 'kelivo_sync';
 
+  /// A hung connection must never wedge the sync engine in "syncing"
+  /// forever: small objects time out fast, file transfers get longer.
+  static const _objectTimeout = Duration(seconds: 30);
+  static const _fileTimeout = Duration(minutes: 3);
+
   /// Subdirectories that [ensureReady] creates below the root. WebDAV
   /// requires every intermediate collection to exist before a PUT.
   static const _subCollections = ['conversations', 'entities', 'assets'];
@@ -90,11 +95,13 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
             '</d:propfind>';
         final probeRes = await client
             .send(probe)
-            .then(http.Response.fromStream);
+            .then(http.Response.fromStream)
+          .timeout(_objectTimeout);
         if (probeRes.statusCode == 404) {
           final mkcol = await client
               .send(http.Request('MKCOL', uri)..headers.addAll(_headers()))
-              .then(http.Response.fromStream);
+              .then(http.Response.fromStream)
+          .timeout(_objectTimeout);
           if (mkcol.statusCode != 201 &&
               mkcol.statusCode != 200 &&
               mkcol.statusCode != 405) {
@@ -124,7 +131,8 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
       });
       final response = await client
           .send(request)
-          .then(http.Response.fromStream);
+          .then(http.Response.fromStream)
+          .timeout(_objectTimeout);
       switch (response.statusCode) {
         case 200:
           return RemoteObjectData(
@@ -185,7 +193,8 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
       request.bodyBytes = bytes;
       final response = await client
           .send(request)
-          .then(http.Response.fromStream);
+          .then(http.Response.fromStream)
+          .timeout(_objectTimeout);
       if (response.statusCode == 412) {
         throw RemotePreconditionFailedException(path);
       }
@@ -239,7 +248,8 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
       );
       final response = await client
           .send(request)
-          .then(http.Response.fromStream);
+          .then(http.Response.fromStream)
+          .timeout(_fileTimeout);
       if (response.statusCode == 409 && retryOnMissingCollection) {
         await ensureReady();
         return _putFileAttempt(path, file, contentType, false);
@@ -259,8 +269,8 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
     try {
       final request = http.Request('GET', uri);
       request.headers.addAll(_headers());
-      final streamed = await client.send(request);
-      if (streamed.statusCode == 404) {
+      final streamed = await client.send(request).timeout(_objectTimeout);
+      if (streamed.statusCode == 404 || streamed.statusCode == 409) {
         await streamed.stream.drain<void>();
         return false;
       }
@@ -271,7 +281,7 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
       await destination.parent.create(recursive: true);
       final sink = destination.openWrite();
       try {
-        await streamed.stream.pipe(sink);
+        await streamed.stream.pipe(sink).timeout(_fileTimeout);
       } catch (_) {
         try {
           await sink.close();
@@ -293,7 +303,8 @@ final class WebDavSyncRemoteStore implements SyncRemoteStore {
       request.headers.addAll(_headers());
       final response = await client
           .send(request)
-          .then(http.Response.fromStream);
+          .then(http.Response.fromStream)
+          .timeout(_objectTimeout);
       if (response.statusCode != 404 &&
           (response.statusCode < 200 || response.statusCode >= 300)) {
         _throwHttp('DELETE', uri, response.statusCode);

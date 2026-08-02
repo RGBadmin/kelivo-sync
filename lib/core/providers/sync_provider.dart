@@ -165,8 +165,12 @@ class SyncService extends ChangeNotifier
     super.dispose();
   }
 
+  AppLifecycleState? _lastLifecycleState;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final previous = _lastLifecycleState;
+    _lastLifecycleState = state;
     if (!_enabled) return;
     if (state == AppLifecycleState.paused) {
       _pollTimer?.cancel();
@@ -175,9 +179,13 @@ class SyncService extends ChangeNotifier
         _debounceTimer!.cancel();
         unawaited(_runSync());
       }
-    } else if (state == AppLifecycleState.resumed) {
+    } else if (state == AppLifecycleState.resumed &&
+        previous == AppLifecycleState.paused) {
+      // Only a genuine return from background triggers a round; desktop
+      // focus changes bounce through inactive/resumed constantly and must
+      // not spam the remote. The gap limiter applies (auto: true).
       _startPolling();
-      unawaited(_runSync(full: true, auto: false));
+      unawaited(_runSync(full: true));
     }
   }
 
@@ -271,10 +279,14 @@ class SyncService extends ChangeNotifier
   }
 
   /// Enable flow for the settings UI: switches sync on, creates the remote
-  /// directories, then runs the FIRST full sync synchronously so the caller
-  /// can show progress and — when cloud data was downloaded — prompt for a
-  /// restart. Later rounds are incremental and run in the background.
-  Future<SyncPullReport> enableWithInitialSync() async {
+  /// directories, then runs the FIRST sync synchronously so the caller can
+  /// show progress. With [uploadLocal] the local state force-overwrites the
+  /// cloud; otherwise the engine's normal first-sync rule applies (a
+  /// populated cloud overwrites this device, and the caller prompts for a
+  /// restart). Later rounds are incremental and run in the background.
+  Future<SyncPullReport> enableWithInitialSync({
+    bool uploadLocal = false,
+  }) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(enabledKey, true);
     _enabled = true;
@@ -292,7 +304,9 @@ class SyncService extends ChangeNotifier
       // Create kelivo_sync/ and its subdirectories up front; WebDAV servers
       // answer 409 on writes into a missing collection.
       await store.ensureReady();
-      final report = await engine.syncOnce(store);
+      final report = uploadLocal
+          ? await engine.forceUpload(store)
+          : await engine.syncOnce(store);
       await _applyUiRefresh(report);
       _consecutiveFailures = 0;
       _lastError = null;

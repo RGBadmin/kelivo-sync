@@ -903,6 +903,11 @@ class S3BackupClient {
   // Raw conditional reads/writes for the multi-device sync engine. Unlike
   // the backup APIs above they never touch the backup manifest, and the
   // caller passes complete keys (the sync engine owns its own prefix).
+  // A hung connection must never wedge the engine in "syncing" forever, so
+  // every call carries a timeout.
+
+  static const _syncObjectTimeout = Duration(seconds: 30);
+  static const _syncFileTimeout = Duration(minutes: 3);
 
   Future<RemoteGetResult> getSyncObject(
     S3Config cfg, {
@@ -915,7 +920,7 @@ class S3BackupClient {
       method: 'GET',
       uri: _buildObjectUri(cfg, key),
       headers: {if (ifNoneMatch != null) 'if-none-match': ifNoneMatch},
-    );
+    ).timeout(_syncObjectTimeout);
     if (res.statusCode == 304) return const RemoteObjectUnchanged();
     if (_isMissingObjectResponse(res)) return const RemoteObjectMissing();
     if (res.statusCode == 401 || res.statusCode == 403) {
@@ -949,7 +954,7 @@ class S3BackupClient {
         if (ifAbsent) 'if-none-match': '*',
       },
       bodyBytes: bytes,
-    );
+    ).timeout(_syncObjectTimeout);
     // 412 = PreconditionFailed; 409 = ConditionalRequestConflict, AWS's
     // answer when two conditional writers race.
     if (res.statusCode == 412 || res.statusCode == 409) {
@@ -980,8 +985,10 @@ class S3BackupClient {
       uri: _buildObjectUri(cfg, key),
       bodyFile: file,
       headers: {'content-type': contentType},
-    );
-    final res = await http.Response.fromStream(streamed);
+    ).timeout(_syncFileTimeout);
+    final res = await http.Response.fromStream(
+      streamed,
+    ).timeout(_syncObjectTimeout);
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('S3 upload failed: ${_extractErrorMessage(res)}');
     }
@@ -999,7 +1006,7 @@ class S3BackupClient {
       uri: _buildObjectUri(cfg, key),
       destination: destination,
       missingOk: true,
-    );
+    ).timeout(_syncFileTimeout);
   }
 
   Future<void> deleteSyncObject(S3Config cfg, {required String key}) async {
@@ -1008,7 +1015,7 @@ class S3BackupClient {
       cfg,
       method: 'DELETE',
       uri: _buildObjectUri(cfg, key),
-    );
+    ).timeout(_syncObjectTimeout);
     if ((res.statusCode < 200 || res.statusCode >= 300) &&
         !_isMissingObjectResponse(res)) {
       throw Exception('S3 delete failed: ${_extractErrorMessage(res)}');

@@ -92,33 +92,64 @@ Future<void> runSyncEnableFlow(BuildContext context) async {
   }
   if (!context.mounted) return;
 
-  final body = probe.hasData
-      ? l10n.syncEnableConfirmHasData(
-          probe.revision,
-          _formatTime(probe.writtenAt) ?? l10n.syncUnknownTime,
-        )
-      : l10n.syncEnableConfirmNoData;
   final cs = Theme.of(context).colorScheme;
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: cs.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(l10n.syncEnableConfirmTitle),
-      content: Text(body),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(false),
-          child: Text(l10n.syncCancel),
+  final String? direction;
+  if (probe.hasData) {
+    // Cloud already holds data: the user picks the initialization
+    // direction — download (cloud overwrites local) or upload (local
+    // overwrites cloud) — or cancels without enabling anything.
+    direction = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(l10n.syncEnableConfirmTitle),
+        content: Text(
+          l10n.syncEnableConfirmHasData(
+            probe.revision,
+            _formatTime(probe.writtenAt) ?? l10n.syncUnknownTime,
+          ),
         ),
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(true),
-          child: Text(l10n.syncEnableConfirmOk),
-        ),
-      ],
-    ),
-  );
-  if (confirmed != true) return;
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: Text(l10n.syncCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('upload'),
+            child: Text(l10n.syncUploadNow),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('download'),
+            child: Text(l10n.syncDownloadNow),
+          ),
+        ],
+      ),
+    );
+    if (direction == null) return;
+  } else {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(l10n.syncEnableConfirmTitle),
+        content: Text(l10n.syncEnableConfirmNoData),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l10n.syncCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l10n.syncEnableConfirmOk),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    direction = 'upload';
+  }
   if (!context.mounted) return;
 
   // First sync runs in the foreground: full download/upload with the remote,
@@ -130,7 +161,9 @@ Future<void> runSyncEnableFlow(BuildContext context) async {
   );
   SyncPullReport report;
   try {
-    report = await sync.enableWithInitialSync();
+    report = await sync.enableWithInitialSync(
+      uploadLocal: direction == 'upload',
+    );
   } catch (error) {
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();
@@ -145,9 +178,9 @@ Future<void> runSyncEnableFlow(BuildContext context) async {
   if (!context.mounted) return;
   Navigator.of(context, rootNavigator: true).pop();
 
-  // Cloud data was merged in: settings-backed providers only fully refresh
+  // Cloud data was pulled in: settings-backed providers only fully refresh
   // on a cold start, so prompt for a restart like the backup restore does.
-  if (report.uiRefreshNeeded) {
+  if (direction == 'download' && report.uiRefreshNeeded) {
     await showSyncRestartRequiredDialog(context);
   }
 }

@@ -5699,7 +5699,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String syncEnableConfirmHasData(int revision, String time) {
-    return '云端已有同步数据（版本 $revision，最后写入 $time）。启用后云端数据将覆盖本机数据（包括删除本机多余内容），完成后需重启应用。数据以明文存储在你的服务器上。';
+    return '云端已有同步数据（版本 $revision，最后写入 $time）。请选择初始化方向：「从云下载」用云端覆盖本机（完成后需重启）；「上传到云」用本机覆盖云端。数据以明文存储在你的服务器上。';
   }
 
   @override
@@ -11438,7 +11438,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String syncEnableConfirmHasData(int revision, String time) {
-    return '云端已有同步数据（版本 $revision，最后写入 $time）。启用后云端数据将覆盖本机数据（包括删除本机多余内容），完成后需重启应用。数据以明文存储在你的服务器上。';
+    return '云端已有同步数据（版本 $revision，最后写入 $time）。请选择初始化方向：「从云下载」用云端覆盖本机（完成后需重启）；「上传到云」用本机覆盖云端。数据以明文存储在你的服务器上。';
   }
 
   @override
@@ -17177,7 +17177,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String syncEnableConfirmHasData(int revision, String time) {
-    return '雲端已有同步資料（版本 $revision，最後寫入 $time）。啟用後雲端資料將覆蓋本機資料（包括刪除本機多餘內容），完成後需重新啟動應用。資料會以明文儲存在你的伺服器上。';
+    return '雲端已有同步資料（版本 $revision，最後寫入 $time）。請選擇初始化方向：「從雲下載」用雲端覆蓋本機（完成後需重新啟動）；「上傳到雲」用本機覆蓋雲端。資料會以明文儲存在你的伺服器上。';
   }
 
   @override

@@ -3,7 +3,6 @@ import 'dart:io' show Platform, exit;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/services.dart' show SystemNavigator;
-import 'package:restart_app/restart_app.dart';
 
 abstract final class PlatformUtils {
   PlatformUtils._();
@@ -34,13 +33,10 @@ abstract final class PlatformUtils {
 
   static Future<void> restartApp() async {
     if (defaultTargetPlatform == TargetPlatform.android) {
-      // The restart plugin fails silently on some Android versions; falling
-      // back to a plain exit still fulfils "restart to load the new data" —
-      // the user relaunches from the launcher.
-      try {
-        final result = await Restart.restartApp(mode: RestartMode.process);
-        if (result.success) return;
-      } catch (_) {}
+      // The restart plugin only recreates the activity on some devices,
+      // which brings the user back to a half-initialized UI instead of a
+      // clean relaunch. A plain exit is predictable: the user relaunches
+      // from the launcher and everything loads fresh.
       await SystemNavigator.pop();
       exit(0);
     } else {

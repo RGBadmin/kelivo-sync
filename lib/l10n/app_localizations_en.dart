@@ -5932,7 +5932,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String syncEnableConfirmHasData(int revision, String time) {
-    return 'The cloud already has sync data (revision $revision, last written $time). Enabling will overwrite this device with the cloud data (including deleting local extras); a restart follows. Data is stored in plaintext on your server.';
+    return 'The cloud already has sync data (revision $revision, last written $time). Choose the initial direction: \"Download from cloud\" overwrites this device (restart follows); \"Upload to cloud\" overwrites the cloud with this device. Data is stored in plaintext on your server.';
   }
 
   @override

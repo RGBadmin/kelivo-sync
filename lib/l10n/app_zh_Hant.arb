@@ -2093,7 +2093,7 @@
   "syncNotConfiguredMessage": "請先在「備份」頁設定 WebDAV 或 S3 伺服器",
   "syncProbeFailedMessage": "連線雲端失敗：{error}",
   "syncEnableConfirmTitle": "啟用多端同步",
-  "syncEnableConfirmHasData": "雲端已有同步資料（版本 {revision}，最後寫入 {time}）。啟用後雲端資料將覆蓋本機資料（包括刪除本機多餘內容），完成後需重新啟動應用。資料會以明文儲存在你的伺服器上。",
+  "syncEnableConfirmHasData": "雲端已有同步資料（版本 {revision}，最後寫入 {time}）。請選擇初始化方向：「從雲下載」用雲端覆蓋本機（完成後需重新啟動）；「上傳到雲」用本機覆蓋雲端。資料會以明文儲存在你的伺服器上。",
   "syncEnableConfirmNoData": "雲端暫無資料，將把本機全部資料上傳作為初始版本。此後始終以最新修改的一端覆蓋另一端。資料會以明文儲存在你的伺服器上。",
   "syncEnableConfirmOk": "啟用",
   "syncCancel": "取消",

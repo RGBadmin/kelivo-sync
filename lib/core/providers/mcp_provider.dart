@@ -331,11 +331,22 @@ class McpProvider extends ChangeNotifier {
     );
   }
 
+  String? _lastPersistedServersJson;
+
   Future<void> _persistServers(List<McpServerConfig> servers) async {
-    await preferences.setString(
-      _prefsKey,
-      jsonEncode(servers.map((e) => e.toJson()).toList()),
-    );
+    final encoded = jsonEncode(servers.map((e) => e.toJson()).toList());
+    // Tool refreshes after every (re)connect re-serialize the whole list;
+    // skipping identical rewrites keeps background reconnect cycles from
+    // endlessly re-marking the config dirty for sync.
+    final previous =
+        _lastPersistedServersJson ??
+        jsonEncode(_servers.map((e) => e.toJson()).toList());
+    if (encoded == previous) {
+      _lastPersistedServersJson = encoded;
+      return;
+    }
+    _lastPersistedServersJson = encoded;
+    await preferences.setString(_prefsKey, encoded);
   }
 
   Future<T> _serializeServerMutation<T>(Future<T> Function() operation) {
