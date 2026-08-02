@@ -83,6 +83,14 @@ class SyncService extends ChangeNotifier
   static const pollIntervalKey = 'sync_poll_interval_minutes_v1';
   static const webdavConfigKey = 'webdav_config_v1';
   static const s3ConfigKey = 's3_config_v1';
+  static const _uploadCountKey = 'sync_upload_count_v1';
+  static const _uploadDateKey = 'sync_upload_date_v1';
+
+  /// Quota fuse: when automatic rounds upload more objects than this within
+  /// one calendar day, automatic syncing pauses until the next day (manual
+  /// upload/download stays available). Normal usage is a few hundred at
+  /// most; only a runaway loop can reach this.
+  static const dailyUploadBudget = 2000;
 
   // Rate-limit friendly cadence: WebDAV providers like Jianguoyun throttle
   // aggressively (HTTP 503), so changes coalesce for 10s and automatic
@@ -114,6 +122,35 @@ class SyncService extends ChangeNotifier
   bool _followUpRequested = false;
   int _consecutiveFailures = 0;
   bool _disposed = false;
+  bool _budgetExhausted = false;
+
+  bool get dailyBudgetExhausted => _budgetExhausted;
+
+  static String _todayStamp() =>
+      DateTime.now().toIso8601String().substring(0, 10);
+
+  Future<int> _recordUploads(int uploadedObjects) async {
+    final preferences = await SharedPreferences.getInstance();
+    final today = _todayStamp();
+    var total = preferences.getString(_uploadDateKey) == today
+        ? (preferences.getInt(_uploadCountKey) ?? 0)
+        : 0;
+    total += uploadedObjects;
+    await preferences.setString(_uploadDateKey, today);
+    await preferences.setInt(_uploadCountKey, total);
+    if (total > dailyUploadBudget && !_budgetExhausted) {
+      _budgetExhausted = true;
+      _pollTimer?.cancel();
+      _debounceTimer?.cancel();
+      _lastError = '今日自动同步上传已达安全上限（$dailyUploadBudget 次），'
+          '已暂停自动同步保护存储配额；手动上传/下载仍可用，明日自动恢复';
+      _setPhase(SyncPhase.configError);
+    } else if (total <= dailyUploadBudget && _budgetExhausted) {
+      // New day: the counter reset above re-arms automatic syncing.
+      _budgetExhausted = false;
+    }
+    return total;
+  }
 
   Timer? _debounceTimer;
   Timer? _pollTimer;
@@ -144,7 +181,16 @@ class SyncService extends ChangeNotifier
       _setPhase(SyncPhase.disabled);
       return;
     }
+    _budgetExhausted =
+        preferences.getString(_uploadDateKey) == _todayStamp() &&
+        (preferences.getInt(_uploadCountKey) ?? 0) > dailyUploadBudget;
     await _ensureEngine();
+    if (_budgetExhausted) {
+      _lastError = '今日自动同步上传已达安全上限（$dailyUploadBudget 次），'
+          '已暂停自动同步保护存储配额；手动上传/下载仍可用，明日自动恢复';
+      _setPhase(SyncPhase.configError);
+      return;
+    }
     _startPolling();
     unawaited(_runSync(full: true, auto: false));
   }
@@ -209,7 +255,7 @@ class SyncService extends ChangeNotifier
 
   @override
   void onLocalChange({required SyncScope scope, required bool quiet}) {
-    if (!_enabled || quiet || _disposed) return;
+    if (!_enabled || quiet || _disposed || _budgetExhausted) return;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(_debounceDuration, () {
       unawaited(_runSync());
@@ -461,6 +507,10 @@ class SyncService extends ChangeNotifier
 
   Future<void> _runSync({bool full = false, bool auto = true}) async {
     if (!_enabled || _disposed) return;
+    if (auto && _budgetExhausted) {
+      // Re-arm automatically once the calendar day rolls over.
+      if (await _recordUploads(0) > dailyUploadBudget) return;
+    }
     if (_syncing) {
       _followUpRequested = true;
       return;
@@ -494,6 +544,8 @@ class SyncService extends ChangeNotifier
       // One round = one manifest fetch + mirror in the winning direction.
       final report = await engine.syncOnce(store);
       await _applyUiRefresh(report);
+      await _recordUploads(report.uploadedObjects);
+      if (_budgetExhausted) return;
       _consecutiveFailures = 0;
       _lastError = null;
       _lastSyncAt = DateTime.now();
